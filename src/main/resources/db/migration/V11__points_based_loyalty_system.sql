@@ -1,0 +1,101 @@
+CREATE TABLE loyalty_programs (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  restaurant_id BIGINT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  points_per_100 INT NOT NULL DEFAULT 10,
+  minimum_order_amount DECIMAL(12,2) NOT NULL DEFAULT 100.00,
+  minimum_redemption_points INT NOT NULL DEFAULT 100,
+  points_expiry_days INT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_loyalty_program_restaurant (restaurant_id),
+  CONSTRAINT fk_loyalty_program_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id)
+);
+
+CREATE TABLE loyalty_accounts (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  restaurant_id BIGINT NOT NULL,
+  customer_id BIGINT NOT NULL,
+  available_points BIGINT NOT NULL DEFAULT 0,
+  lifetime_earned_points BIGINT NOT NULL DEFAULT 0,
+  lifetime_redeemed_points BIGINT NOT NULL DEFAULT 0,
+  version BIGINT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_loyalty_account_restaurant_customer (restaurant_id, customer_id),
+  CONSTRAINT fk_loyalty_account_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id),
+  CONSTRAINT fk_loyalty_account_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE loyalty_rewards (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  restaurant_id BIGINT NOT NULL,
+  reward_name VARCHAR(120) NOT NULL,
+  description VARCHAR(1000) NULL,
+  image_url MEDIUMTEXT NULL,
+  reward_type VARCHAR(30) NOT NULL,
+  points_required INT NOT NULL,
+  menu_item_id BIGINT NULL,
+  discount_percentage DECIMAL(5,2) NULL,
+  discount_amount DECIMAL(12,2) NULL,
+  maximum_discount DECIMAL(12,2) NULL,
+  minimum_order_amount DECIMAL(12,2) NULL,
+  total_quantity INT NULL,
+  remaining_quantity INT NULL,
+  max_redemptions INT NULL,
+  redemption_count INT NOT NULL DEFAULT 0,
+  start_date DATETIME NULL,
+  expiry_date DATETIME NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_loyalty_reward_restaurant_active (restaurant_id,is_active),
+  CONSTRAINT fk_loyalty_reward_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id),
+  CONSTRAINT fk_loyalty_reward_menu_item FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
+);
+
+CREATE TABLE loyalty_redemptions (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  restaurant_id BIGINT NOT NULL,
+  customer_id BIGINT NOT NULL,
+  reward_id BIGINT NOT NULL,
+  order_id BIGINT NULL,
+  redemption_code VARCHAR(40) NOT NULL,
+  points_used INT NOT NULL,
+  discount_value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  status VARCHAR(20) NOT NULL,
+  expires_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  redeemed_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_loyalty_redemption_code (redemption_code),
+  KEY idx_loyalty_redemption_restaurant (restaurant_id,status,created_at),
+  CONSTRAINT fk_loyalty_redemption_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id),
+  CONSTRAINT fk_loyalty_redemption_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
+  CONSTRAINT fk_loyalty_redemption_reward FOREIGN KEY (reward_id) REFERENCES loyalty_rewards(id),
+  CONSTRAINT fk_loyalty_redemption_order FOREIGN KEY (order_id) REFERENCES restaurant_orders(id)
+);
+
+CREATE TABLE loyalty_transactions (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  restaurant_id BIGINT NOT NULL,
+  customer_id BIGINT NOT NULL,
+  order_id BIGINT NULL,
+  redemption_id BIGINT NULL,
+  transaction_type VARCHAR(30) NOT NULL,
+  points BIGINT NOT NULL,
+  description VARCHAR(500) NULL,
+  idempotency_key VARCHAR(150) NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_loyalty_transaction_idempotency (idempotency_key),
+  KEY idx_loyalty_tx_customer (restaurant_id,customer_id,created_at),
+  CONSTRAINT fk_loyalty_tx_restaurant FOREIGN KEY (restaurant_id) REFERENCES restaurants(id),
+  CONSTRAINT fk_loyalty_tx_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
+  CONSTRAINT fk_loyalty_tx_order FOREIGN KEY (order_id) REFERENCES restaurant_orders(id),
+  CONSTRAINT fk_loyalty_tx_redemption FOREIGN KEY (redemption_id) REFERENCES loyalty_redemptions(id)
+);

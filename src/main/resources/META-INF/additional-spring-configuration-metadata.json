@@ -1,0 +1,127 @@
+{"properties": [
+  {
+    "name": "app.customer-base-url",
+    "type": "java.lang.String",
+    "description": "A description for 'app.customer-base-url'"
+  },
+  {
+    "name": "app.jwt.secret",
+    "type": "java.lang.String",
+    "description": "A description for 'app.jwt.secret'"
+  },
+  {
+    "name": "openai.api-key",
+    "type": "java.lang.String",
+    "description": "A description for 'openai.api-key'"
+  },
+  {
+    "name": "openai.menu-model",
+    "type": "java.lang.String",
+    "description": "A description for 'openai.menu-model'"
+  },
+  {
+    "name": "app.admin.username",
+    "type": "java.lang.String",
+    "description": "A description for 'app.admin.username'"
+  },
+  {
+    "name": "app.admin.password",
+    "type": "java.lang.String",
+    "description": "A description for 'app.admin.password'"
+  },
+  {
+    "name": "spring.flyway.baseline-on-migrate",
+    "type": "java.lang.String",
+    "description": "A description for 'spring.flyway.baseline-on-migrate'"
+  },
+  {
+    "name": "spring.flyway.baseline-version",
+    "type": "java.lang.String",
+    "description": "A description for 'spring.flyway.baseline-version'"
+  },
+  {
+    "name": "app.frontend-origin",
+    "type": "java.lang.String",
+    "description": "A description for 'app.frontend-origin'"
+  },
+  {
+    "name": "app.google.client-id",
+    "type": "java.lang.String",
+    "description": "A description for 'app.google.client-id'"
+  },
+  {
+    "name": "app.mail.from",
+    "type": "java.lang.String",
+    "description": "A description for 'app.mail.from'"
+  },
+  {
+    "name": "app.webpush.public-key",
+    "type": "java.lang.String",
+    "description": "A description for 'app.webpush.public-key'"
+  },
+  {
+    "name": "app.webpush.private-key",
+    "type": "java.lang.String",
+    "description": "A description for 'app.webpush.private-key'"
+  },
+  {
+    "name": "app.webpush.subject",
+    "type": "java.lang.String",
+    "description": "A description for 'app.webpush.subject'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.webhook-secret",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.webhook-secret'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.webhook-key-id",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.webhook-key-id'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.environment",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.environment'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.merchant-id",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.merchant-id'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.client-version",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.client-version'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.client-secret",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.client-secret'"
+  },
+  {
+    "name": "app.phonepe.subscriptions.client-id",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.subscriptions.client-id'"
+  },
+  {
+    "name": "app.phonepe.partner-integration",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.partner-integration'"
+  },
+  {
+    "name": "app.phonepe.restaurant-merchants-enabled",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.restaurant-merchants-enabled'"
+  },
+  {
+    "name": "app.phonepe.credential-encryption-key",
+    "type": "java.lang.String",
+    "description": "A description for 'app.phonepe.credential-encryption-key'"
+  },
+  {
+    "name": "app.mail.contact-to",
+    "type": "java.lang.String",
+    "description": "A description for 'app.mail.contact-to'"
+  }
+]}

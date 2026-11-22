@@ -1,0 +1,47 @@
+package com.texos.texos_backend.entity;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "payment_audit_logs")
+@Getter
+@Setter
+@NoArgsConstructor
+public class PaymentAuditLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "payment_transaction_id", nullable = false)
+    private CustomerPaymentTransaction paymentTransaction;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "payment_attempt_id")
+    private PaymentAttempt paymentAttempt;
+
+    @Column(name = "event_type", nullable = false, length = 50)
+    private String eventType;
+
+    @Column(name = "actor_type", nullable = false, length = 30)
+    private String actorType;
+
+    @Column(name = "actor_id")
+    private Long actorId;
+
+    @Column(name = "details_json", columnDefinition = "LONGTEXT")
+    private String detailsJson;
+
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    void onCreate() {
+        createdAt = LocalDateTime.now();
+    }
+}
