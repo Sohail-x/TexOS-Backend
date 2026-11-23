@@ -6,12 +6,12 @@ import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.repository.PasswordResetTokenRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.mail.SimpleMailMessage;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.web.server.ResponseStatusException;
+
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +32,7 @@ class PasswordResetServiceTest {
     private OwnerRepository ownerRepository;
     private PasswordResetTokenRepository tokenRepository;
     private PasswordEncoder passwordEncoder;
-    private JavaMailSender mailSender;
+    private BrevoEmailService emailService;
     private PasswordResetService service;
 
     @BeforeEach
@@ -40,41 +40,72 @@ class PasswordResetServiceTest {
         ownerRepository = mock(OwnerRepository.class);
         tokenRepository = mock(PasswordResetTokenRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        mailSender = mock(JavaMailSender.class);
-        service = new PasswordResetService(ownerRepository, tokenRepository, passwordEncoder, mailSender);
-        ReflectionTestUtils.setField(service, "mailUsername", "workspacexzen@gmail.com");
-        ReflectionTestUtils.setField(service, "mailPassword", "abcdEFGH1234ijkl");
-        ReflectionTestUtils.setField(service, "mailFrom", "workspacexzen@gmail.com");
-        ReflectionTestUtils.setField(service, "frontendOrigin", "https://texos.example");
+        emailService = mock(BrevoEmailService.class);
+
+        service = new PasswordResetService(ownerRepository, tokenRepository, passwordEncoder, emailService);
+
+        ReflectionTestUtils.setField(service, "frontendOrigin","https://texos.example");
     }
 
     @Test
-    void sendsOneTimeResetLinkAndStoresOnlyItsHash() throws Exception {
-        Owner owner = owner();
-        when(ownerRepository.findByEmail("owner@example.com")).thenReturn(Optional.of(owner));
+void sendsOneTimeResetLinkAndStoresOnlyItsHash() throws Exception {
+    Owner owner = owner();
+    when(ownerRepository.findByEmail("owner@example.com"))
+            .thenReturn(Optional.of(owner));
 
-        service.requestReset(" Owner@Example.com ");
+    service.requestReset(" Owner@Example.com ");
 
-        var tokenCaptor = org.mockito.ArgumentCaptor.forClass(PasswordResetToken.class);
-        verify(tokenRepository).deleteUnusedByOwnerId(7L);
-        verify(tokenRepository).save(tokenCaptor.capture());
-        var messageCaptor = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
-        verify(mailSender).send(messageCaptor.capture());
+    ArgumentCaptor<PasswordResetToken> tokenCaptor =
+            ArgumentCaptor.forClass(PasswordResetToken.class);
 
-        PasswordResetToken savedToken = tokenCaptor.getValue();
-        SimpleMailMessage message = messageCaptor.getValue();
-        assertEquals("owner@example.com", message.getTo()[0]);
-        assertEquals("workspacexzen@gmail.com", message.getFrom());
-        assertTrue(message.getText().contains("https://texos.example/reset-password?token="));
-        Matcher tokenMatcher = Pattern.compile("token=([^\\s]+)").matcher(message.getText());
-        assertTrue(tokenMatcher.find());
-        String rawToken = URLDecoder.decode(tokenMatcher.group(1), StandardCharsets.UTF_8);
-        String expectedHash = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                MessageDigest.getInstance("SHA-256").digest(rawToken.getBytes(StandardCharsets.UTF_8)));
-        assertEquals(expectedHash, savedToken.getTokenHash());
-        assertTrue(savedToken.getExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC)));
-        assertTrue(savedToken.getExpiresAt().isBefore(LocalDateTime.now(ZoneOffset.UTC).plusMinutes(31)));
-    }
+    verify(tokenRepository).deleteUnusedByOwnerId(7L);
+    verify(tokenRepository).save(tokenCaptor.capture());
+
+    ArgumentCaptor<String> recipientCaptor =
+            ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<String> subjectCaptor =
+            ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<String> contentCaptor =
+            ArgumentCaptor.forClass(String.class);
+
+    verify(emailService).send(
+            recipientCaptor.capture(),
+            subjectCaptor.capture(),
+            contentCaptor.capture()
+    );
+
+    PasswordResetToken savedToken = tokenCaptor.getValue();
+
+    assertEquals("owner@example.com", recipientCaptor.getValue());
+    assertTrue(contentCaptor.getValue().contains(
+            "https://texos.example/reset-password?token="
+    ));
+
+    Matcher tokenMatcher = Pattern.compile("token=([^\\s]+)")
+            .matcher(contentCaptor.getValue());
+
+    assertTrue(tokenMatcher.find());
+
+    String rawToken = URLDecoder.decode(
+            tokenMatcher.group(1),
+            StandardCharsets.UTF_8
+    );
+
+    String expectedHash = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            MessageDigest.getInstance("SHA-256")
+                    .digest(rawToken.getBytes(StandardCharsets.UTF_8))
+    );
+
+    assertEquals(expectedHash, savedToken.getTokenHash());
+
+    assertTrue(savedToken.getExpiresAt().isAfter(
+            LocalDateTime.now(ZoneOffset.UTC)
+    ));
+
+    assertTrue(savedToken.getExpiresAt().isBefore(
+            LocalDateTime.now(ZoneOffset.UTC).plusMinutes(31)
+    ));
+}
 
     @Test
     void doesNotRevealWhetherEmailHasAnAccount() {
@@ -82,32 +113,7 @@ class PasswordResetServiceTest {
 
         service.requestReset("missing@example.com");
 
-        verifyNoInteractions(mailSender, tokenRepository);
-    }
-
-    @Test
-    void reportsMissingMailCredentialsInsteadOfClaimingTheResetEmailWasSent() {
-        when(ownerRepository.findByEmail("owner@example.com")).thenReturn(Optional.of(owner()));
-        ReflectionTestUtils.setField(service, "mailPassword", "");
-
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
-                () -> service.requestReset("owner@example.com"));
-
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatusCode());
-        verifyNoInteractions(mailSender, tokenRepository);
-    }
-
-    @Test
-    void rejectsNonAppPasswordBeforeCreatingATokenOrSendingMail() {
-        when(ownerRepository.findByEmail("owner@example.com")).thenReturn(Optional.of(owner()));
-        ReflectionTestUtils.setField(service, "mailPassword", "regular-account-password");
-
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
-                () -> service.requestReset("owner@example.com"));
-
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatusCode());
-        assertTrue(exception.getReason().contains("16-character Gmail App Password"));
-        verifyNoInteractions(mailSender, tokenRepository);
+        verifyNoInteractions(emailService, tokenRepository);
     }
 
     @Test
