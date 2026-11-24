@@ -13,12 +13,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import com.texos.texos_backend.observability.DashboardSecurityTimingFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -108,7 +110,8 @@ public class SecurityConfig {
             AuthRateLimitFilter authRateLimitFilter,
             KitchenStaffAuthenticationFilter kitchenStaffAuthenticationFilter,
             OrderApprovalStaffAuthenticationFilter orderApprovalStaffAuthenticationFilter,
-            RestaurantAccessFilter restaurantAccessFilter) throws Exception {
+            RestaurantAccessFilter restaurantAccessFilter,
+            DashboardSecurityTimingFilter dashboardSecurityTimingFilter) throws Exception {
 
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -144,6 +147,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/public/orders/**").permitAll()
                 .requestMatchers("/ws/**").permitAll()
                 .requestMatchers("/health").permitAll()
+                .requestMatchers("/actuator/**").hasRole("TEXOS_ADMIN")
                 // Every owner/restaurant management API requires a valid JWT.
                 .requestMatchers("/api/restaurants/**").hasRole("OWNER")
                 .requestMatchers("/api/auth/**").hasRole("OWNER")
@@ -153,7 +157,8 @@ public class SecurityConfig {
             .addFilterBefore(authRateLimitFilter, JwtAuthenticationFilter.class)
             .addFilterAfter(kitchenStaffAuthenticationFilter, JwtAuthenticationFilter.class)
             .addFilterAfter(orderApprovalStaffAuthenticationFilter, KitchenStaffAuthenticationFilter.class)
-            .addFilterAfter(restaurantAccessFilter, OrderApprovalStaffAuthenticationFilter.class);
+            .addFilterAfter(restaurantAccessFilter, OrderApprovalStaffAuthenticationFilter.class)
+            .addFilterAfter(dashboardSecurityTimingFilter, AuthorizationFilter.class);
 
         return http.build();
     }

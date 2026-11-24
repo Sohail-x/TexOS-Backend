@@ -6,6 +6,7 @@ import com.texos.texos_backend.exception.InvalidRequestException;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.exception.ResourceConflictException;
 import com.texos.texos_backend.repository.*;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -454,47 +455,63 @@ public OrderResponse updatePaymentStatus(
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getRecentOrdersForOwner(Long restaurantId) {
-        return orderRepository.findTop10ByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
-                .stream()
-                .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
-                        && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
-                .map(this::mapToResponse).toList();
+        long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
+        try {
+            List<OrderResponse> responses = orderRepository
+                    .findTop10ByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
+                    .stream()
+                    .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
+                            && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
+                    .map(this::mapToResponse).toList();
+            DashboardRequestMeasurements.recordResponseOrderCount(responses.size());
+            return responses;
+        } finally {
+            DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
+        }
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getActiveOrdersForOwner(Long restaurantId) {
-        List<OrderStatus> activeStatuses = List.of(
-                OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY
-        );
-        Map<Long, RestaurantOrder> visibleOrdersById = new LinkedHashMap<>();
-        orderRepository
-                .findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(restaurantId, activeStatuses)
-                .stream()
-                .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
-                        && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
-                .forEach(order -> visibleOrdersById.putIfAbsent(order.getId(), order));
+        long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
+        try {
+            List<OrderStatus> activeStatuses = List.of(
+                    OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY
+            );
+            Map<Long, RestaurantOrder> visibleOrdersById = new LinkedHashMap<>();
+            orderRepository
+                    .findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
+                            restaurantId, activeStatuses)
+                    .stream()
+                    .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
+                            && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
+                    .forEach(order -> visibleOrdersById.putIfAbsent(order.getId(), order));
 
-        if (visibleOrdersById.isEmpty()) {
-            return List.of();
-        }
-
-        List<Long> orderIds = new ArrayList<>(visibleOrdersById.keySet());
-        Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
-        for (Bill bill : billRepository.findAllByOrder_IdIn(orderIds)) {
-            billResponsesByOrderId.put(
-                    bill.getOrder().getId(),
-                    billService.mapToResponse(bill));
-        }
-
-        List<OrderResponse> responses = new ArrayList<>(visibleOrdersById.size());
-        for (RestaurantOrder order : visibleOrdersById.values()) {
-            BillResponse billResponse = billResponsesByOrderId.get(order.getId());
-            if (billResponse == null) {
-                throw new ResourceNotFoundException("Bill not found");
+            if (visibleOrdersById.isEmpty()) {
+                DashboardRequestMeasurements.recordResponseOrderCount(0);
+                return List.of();
             }
-            responses.add(mapToResponse(order, billResponse));
+
+            List<Long> orderIds = new ArrayList<>(visibleOrdersById.keySet());
+            Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
+            for (Bill bill : billRepository.findAllByOrder_IdIn(orderIds)) {
+                billResponsesByOrderId.put(
+                        bill.getOrder().getId(),
+                        billService.mapToResponse(bill));
+            }
+
+            List<OrderResponse> responses = new ArrayList<>(visibleOrdersById.size());
+            for (RestaurantOrder order : visibleOrdersById.values()) {
+                BillResponse billResponse = billResponsesByOrderId.get(order.getId());
+                if (billResponse == null) {
+                    throw new ResourceNotFoundException("Bill not found");
+                }
+                responses.add(mapToResponse(order, billResponse));
+            }
+            DashboardRequestMeasurements.recordResponseOrderCount(responses.size());
+            return responses;
+        } finally {
+            DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
         }
-        return responses;
     }
 
     private void ensureOwnerVisible(RestaurantOrder order) {

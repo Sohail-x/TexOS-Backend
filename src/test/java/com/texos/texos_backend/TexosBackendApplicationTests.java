@@ -8,12 +8,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.web.FilterChainProxy;
 import com.texos.texos_backend.service.JwtService;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.springframework.http.MediaType;
 import java.util.UUID;
 
@@ -29,6 +33,9 @@ class TexosBackendApplicationTests {
 
 	@Autowired
 	private FilterChainProxy filterChainProxy;
+
+	@PersistenceContext
+	private EntityManager entityManager;
 
 	@Value("${app.admin.username}")
 	private String adminUsername;
@@ -60,6 +67,32 @@ class TexosBackendApplicationTests {
 						.content("{\"code\":\"123456\"}"))
 				.andExpect(status().isNotFound())
 				.andExpect(content().json("{\"message\":\"Invalid access code.\"}"));
+	}
+
+	@Test
+	void actuatorMetricsRequireTexosAdminRole() throws Exception {
+		mockMvc.perform(get("/actuator/metrics"))
+				.andExpect(status().isUnauthorized());
+
+		mockMvc.perform(get("/actuator/metrics")
+						.header("Authorization", "Bearer " + jwtService.generateAdminToken(adminUsername)))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void hibernateInstrumentationCountsAndTimesReadQueriesInRequestContext() {
+		DashboardRequestMeasurements.Measurement measurement =
+				DashboardRequestMeasurements.begin(
+						"/api/restaurants/{restaurantId}/dashboard/summary");
+		try {
+			entityManager.createNativeQuery("select 1").getSingleResult();
+		} finally {
+			DashboardRequestMeasurements.clear();
+		}
+
+		assertEquals(1, measurement.getQueryCount());
+		assertTrue(measurement.getQueryExecutionNanos() > 0);
+		assertTrue(measurement.getConnectionAcquisitionNanos() > 0);
 	}
 
 	@Test

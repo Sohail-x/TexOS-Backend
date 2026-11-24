@@ -2,6 +2,7 @@ package com.texos.texos_backend.controller;
 
 import com.texos.texos_backend.dto.DashboardSummaryResponse;
 import com.texos.texos_backend.dto.OrderResponse;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.service.DashboardService;
 import com.texos.texos_backend.service.OrderService;
 
@@ -30,22 +31,55 @@ public class DashboardController {
     @GetMapping("/summary")
     public DashboardSummaryResponse getSummary(
             @PathVariable Long restaurantId) {
-
-        return dashboardService.getSummary(restaurantId);
+        long controllerStartedAtNanos = startControllerMethod();
+        try {
+            return dashboardService.getSummary(restaurantId);
+        } finally {
+            finishControllerMethod(controllerStartedAtNanos);
+        }
     }
 
     @GetMapping("/recent-orders")
     public List<OrderResponse> getRecentOrders(
             @PathVariable Long restaurantId) {
-
-        return orderService.getRecentOrdersForOwner(restaurantId);
+        long controllerStartedAtNanos = startControllerMethod();
+        try {
+            return orderService.getRecentOrdersForOwner(restaurantId);
+        } finally {
+            finishControllerMethod(controllerStartedAtNanos);
+        }
     }
 
 
     @GetMapping("/active-orders")
     public List<OrderResponse> getActiveOrders(@PathVariable Long restaurantId) {
+        long controllerStartedAtNanos = startControllerMethod();
+        try {
+            return orderService.getActiveOrdersForOwner(restaurantId);
+        } finally {
+            finishControllerMethod(controllerStartedAtNanos);
+        }
 
-        return orderService.getActiveOrdersForOwner(restaurantId);
+    }
+
+    private long startControllerMethod() {
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.current();
+        if (measurement == null) {
+            return 0;
+        }
+        return measurement.startControllerMethod();
+    }
+
+    private void finishControllerMethod(long controllerStartedAtNanos) {
+        if (controllerStartedAtNanos == 0) {
+            return;
+        }
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.current();
+        if (measurement != null) {
+            measurement.finishControllerMethod(controllerStartedAtNanos);
+        }
     }
 
 }

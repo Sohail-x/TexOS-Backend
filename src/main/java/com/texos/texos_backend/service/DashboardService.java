@@ -9,6 +9,7 @@ import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.repository.DashboardOrderSummary;
 import com.texos.texos_backend.repository.RestaurantOrderRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -35,42 +36,47 @@ public class DashboardService {
 
     @Transactional(readOnly = true)
     public DashboardSummaryResponse getSummary(Long restaurantId) {
+        long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
+        try {
 
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Restaurant not found"));
+            Restaurant restaurant = restaurantRepository.findById(restaurantId)
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Restaurant not found"));
 
-        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+            LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
 
-        LocalDateTime start = today.atStartOfDay();
-        LocalDateTime end = today.plusDays(1).atStartOfDay();
+            LocalDateTime start = today.atStartOfDay();
+            LocalDateTime end = today.plusDays(1).atStartOfDay();
 
-        DashboardOrderSummary summary = orderRepository.getDashboardOrderSummary(
-                restaurantId,
-                start,
-                end,
-                HIDDEN_APPROVAL_STATUSES,
-                OrderStatus.NEW,
-                OrderStatus.PREPARING,
-                OrderStatus.READY,
-                OrderStatus.SERVED,
-                OrderStatus.CANCELLED,
-                PaymentStatus.PENDING,
-                PaymentStatus.PAID);
+            DashboardOrderSummary summary = orderRepository.getDashboardOrderSummary(
+                    restaurantId,
+                    start,
+                    end,
+                    HIDDEN_APPROVAL_STATUSES,
+                    OrderStatus.NEW,
+                    OrderStatus.PREPARING,
+                    OrderStatus.READY,
+                    OrderStatus.SERVED,
+                    OrderStatus.CANCELLED,
+                    PaymentStatus.PENDING,
+                    PaymentStatus.PAID);
 
-        return new DashboardSummaryResponse(
-                restaurant.getId(),
-                restaurant.getRestaurantName(),
-                today,
-                summary.getTotalOrders(),
-                summary.getNewOrders(),
-                summary.getPreparingOrders(),
-                summary.getReadyOrders(),
-                summary.getServedOrders(),
-                summary.getCancelledOrders(),
-                summary.getPendingPayments(),
-                summary.getPaidOrders(),
-                summary.getTotalRevenue()
-        );
+            return new DashboardSummaryResponse(
+                    restaurant.getId(),
+                    restaurant.getRestaurantName(),
+                    today,
+                    summary.getTotalOrders(),
+                    summary.getNewOrders(),
+                    summary.getPreparingOrders(),
+                    summary.getReadyOrders(),
+                    summary.getServedOrders(),
+                    summary.getCancelledOrders(),
+                    summary.getPendingPayments(),
+                    summary.getPaidOrders(),
+                    summary.getTotalRevenue()
+            );
+        } finally {
+            DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
+        }
     }
 }
