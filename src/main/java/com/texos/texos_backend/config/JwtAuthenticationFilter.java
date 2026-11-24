@@ -47,15 +47,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = header.substring(7);
 
         try {
-            String email = jwtService.extractEmail(token);
-            String role = jwtService.extractRole(token);
+            JwtService.VerifiedTokenClaims claims =
+                    jwtService.parseAuthenticationToken(token);
+            String email = claims.subject();
+            String role = claims.role();
 
             if (email != null &&
                 SecurityContextHolder.getContext().getAuthentication() == null) {
 
                 if ("TEXOS_ADMIN".equals(role)
                         && adminCredentials.isUsername(email)
-                        && jwtService.isAdminTokenValid(token, email)) {
+                        && jwtService.isAdminTokenValid(claims, email)) {
                     UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
                             email,
@@ -76,7 +78,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if ((role == null || "OWNER".equals(role))
                     && owner != null &&
                     owner.isActive() &&
-                    jwtService.isTokenValid(token, owner.getEmail() == null
+                    jwtService.isTokenValid(claims, owner.getEmail() == null
                             || owner.getEmail().isBlank() ? owner.getPhone() : owner.getEmail(),
                             owner.getTokenVersion())) {
 
@@ -91,6 +93,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                     SecurityContextHolder.getContext()
                         .setAuthentication(authentication);
+                    request.setAttribute(
+                            AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE,
+                            new AuthenticatedOwnerPrincipal(owner.getId()));
                 }
             }
 

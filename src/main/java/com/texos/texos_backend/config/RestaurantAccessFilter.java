@@ -100,10 +100,22 @@ public class RestaurantAccessFilter extends OncePerRequestFilter {
             return;
         }
 
-        Owner owner = ownerRepository.findByEmail(authentication.getName())
-                .or(() -> ownerRepository.findByPhone(authentication.getName())).orElse(null);
-        if (owner == null || !owner.isActive()
-                || restaurantRepository.findByIdAndOwnerId(restaurantId, owner.getId()).isEmpty()) {
+        Object ownerPrincipalValue =
+                request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE);
+        Long ownerId;
+        if (ownerPrincipalValue instanceof AuthenticatedOwnerPrincipal ownerPrincipal) {
+            // JwtAuthenticationFilter creates this only after active-owner and token checks.
+            ownerId = ownerPrincipal.ownerId();
+        } else {
+            Owner owner = ownerRepository.findByEmail(authentication.getName())
+                    .or(() -> ownerRepository.findByPhone(authentication.getName())).orElse(null);
+            if (owner == null || !owner.isActive()) {
+                writeError(response, HttpStatus.FORBIDDEN, "You do not have access to this restaurant");
+                return;
+            }
+            ownerId = owner.getId();
+        }
+        if (restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId).isEmpty()) {
             writeError(response, HttpStatus.FORBIDDEN, "You do not have access to this restaurant");
             return;
         }

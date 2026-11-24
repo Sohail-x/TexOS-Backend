@@ -9,10 +9,14 @@ import com.texos.texos_backend.entity.SubscriptionStatus;
 import com.texos.texos_backend.exception.ResourceConflictException;
 import com.texos.texos_backend.repository.*;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -20,6 +24,56 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class SubscriptionServiceTest {
+    @Test
+    void subscriptionEligibilityReadsOnlyTheLatestScalarEndDate() {
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        SubscriptionService service = service(
+                mock(SubscriptionPlanRepository.class),
+                subscriptions,
+                mock(SubscriptionPaymentRepository.class),
+                mock(TrialClaimRepository.class),
+                mock(RestaurantRepository.class),
+                mock(WebhookEventRepository.class),
+                mock(PhonePeGateway.class));
+        LocalDateTime futureEndDate = LocalDateTime.now(ZoneOffset.UTC).plusDays(1);
+        when(subscriptions.findEndDatesByRestaurantIdAndStatusIn(
+                13L,
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING),
+                PageRequest.of(0, 1)))
+                .thenReturn(List.of(futureEndDate));
+
+        assertTrue(service.hasValidSubscription(13L));
+
+        verify(subscriptions).findEndDatesByRestaurantIdAndStatusIn(
+                13L,
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING),
+                PageRequest.of(0, 1));
+        verify(subscriptions, never())
+                .findFirstByRestaurantIdAndStatusInOrderByEndDateDesc(anyLong(), anyList());
+    }
+
+    @Test
+    void subscriptionEligibilityRejectsExpiredAndNullEndDates() {
+        SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
+        SubscriptionService service = service(
+                mock(SubscriptionPlanRepository.class),
+                subscriptions,
+                mock(SubscriptionPaymentRepository.class),
+                mock(TrialClaimRepository.class),
+                mock(RestaurantRepository.class),
+                mock(WebhookEventRepository.class),
+                mock(PhonePeGateway.class));
+        when(subscriptions.findEndDatesByRestaurantIdAndStatusIn(
+                eq(13L), anyList(), any()))
+                .thenReturn(List.of(LocalDateTime.now(ZoneOffset.UTC).minusDays(1)));
+        when(subscriptions.findEndDatesByRestaurantIdAndStatusIn(
+                eq(14L), anyList(), any()))
+                .thenReturn(Collections.singletonList(null));
+
+        assertFalse(service.hasValidSubscription(13L));
+        assertFalse(service.hasValidSubscription(14L));
+    }
+
     @Test
     void trialCanOnlyBeClaimedOnceForRestaurant() {
         SubscriptionPlanRepository plans = mock(SubscriptionPlanRepository.class);

@@ -2,6 +2,7 @@ package com.texos.texos_backend.repository;
 
 import com.texos.texos_backend.entity.Subscription;
 import com.texos.texos_backend.entity.SubscriptionStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -16,6 +17,18 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     List<Subscription> findAllByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);
     Optional<Subscription> findFirstByRestaurantIdAndStatusInOrderByEndDateDesc(
             Long restaurantId, List<SubscriptionStatus> statuses);
+
+    @Query("""
+            select subscription.endDate
+            from Subscription subscription
+            where subscription.restaurant.id = :restaurantId
+              and subscription.status in :statuses
+            order by subscription.endDate desc
+            """)
+    List<LocalDateTime> findEndDatesByRestaurantIdAndStatusIn(
+            @Param("restaurantId") Long restaurantId,
+            @Param("statuses") List<SubscriptionStatus> statuses,
+            Pageable pageable);
 
     @Modifying
     @Query("update Subscription s set s.status = com.texos.texos_backend.entity.SubscriptionStatus.EXPIRED " +

@@ -8,6 +8,7 @@ import com.texos.texos_backend.exception.ResourceConflictException;
 import com.texos.texos_backend.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -278,10 +279,12 @@ public class SubscriptionService {
 
     public boolean hasValidSubscription(Long restaurantId) {
         LocalDateTime now = utcNow();
-        return subscriptionRepository.findFirstByRestaurantIdAndStatusInOrderByEndDateDesc(
-                        restaurantId, ENTITLED)
-                .map(s -> s.getEndDate() != null && s.getEndDate().isAfter(now))
-                .orElse(false);
+        List<LocalDateTime> endDates = subscriptionRepository
+                .findEndDatesByRestaurantIdAndStatusIn(
+                        restaurantId, ENTITLED, PageRequest.of(0, 1));
+        return !endDates.isEmpty()
+                && endDates.get(0) != null
+                && endDates.get(0).isAfter(now);
     }
 
     public boolean hasAnyValidSubscriptionForOwner(Long ownerId) {

@@ -117,22 +117,45 @@ public class JwtService {
         return extractAllClaims(token).get("role", String.class);
     }
 
-    public boolean isAdminTokenValid(String token, String username) {
+    public VerifiedTokenClaims parseAuthenticationToken(String token) {
         Claims claims = extractAllClaims(token);
-        return username.equals(claims.getSubject())
-                && "TEXOS_ADMIN".equals(claims.get("role", String.class))
-                && claims.getExpiration().after(new Date());
+        Date expiration = claims.getExpiration();
+        return new VerifiedTokenClaims(
+                claims.getSubject(),
+                claims.get("role", String.class),
+                claims.get("tokenVersion", Integer.class),
+                expiration == null ? null : expiration.getTime());
+    }
+
+    public boolean isAdminTokenValid(String token, String username) {
+        return isAdminTokenValid(parseAuthenticationToken(token), username);
+    }
+
+    public boolean isAdminTokenValid(VerifiedTokenClaims claims, String username) {
+        return username.equals(claims.subject())
+                && "TEXOS_ADMIN".equals(claims.role())
+                && isNotExpired(claims);
     }
 
     public boolean isTokenValid(String token, String email, int expectedTokenVersion) {
-        Claims claims = extractAllClaims(token);
-        Integer tokenVersion = claims.get("tokenVersion", Integer.class);
+        return isTokenValid(parseAuthenticationToken(token), email, expectedTokenVersion);
+    }
 
-        return email.equals(claims.getSubject())
-            && claims.getExpiration().after(new Date())
-            && (tokenVersion == null ? 0 : tokenVersion) == expectedTokenVersion
-            && (claims.get("role", String.class) == null
-                || "OWNER".equals(claims.get("role", String.class)));
+    public boolean isTokenValid(
+            VerifiedTokenClaims claims,
+            String email,
+            int expectedTokenVersion) {
+        Integer tokenVersion = claims.tokenVersion();
+        return email.equals(claims.subject())
+                && isNotExpired(claims)
+                && (tokenVersion == null ? 0 : tokenVersion) == expectedTokenVersion
+                && (claims.role() == null || "OWNER".equals(claims.role()));
+    }
+
+    private boolean isNotExpired(VerifiedTokenClaims claims) {
+        Long expirationTimeMillis = claims.expirationTimeMillis();
+        return expirationTimeMillis != null
+                && expirationTimeMillis > System.currentTimeMillis();
     }
 
     private Claims extractAllClaims(String token) {
@@ -142,4 +165,10 @@ public class JwtService {
             .parseSignedClaims(token)
             .getPayload();
     }
+
+    public record VerifiedTokenClaims(
+            String subject,
+            String role,
+            Integer tokenVersion,
+            Long expirationTimeMillis) {}
 }
