@@ -143,6 +143,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/public/orders/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/public/orders/**").permitAll()
                 .requestMatchers("/ws/**").permitAll()
+                .requestMatchers("/health").permitAll()
                 // Every owner/restaurant management API requires a valid JWT.
                 .requestMatchers("/api/restaurants/**").hasRole("OWNER")
                 .requestMatchers("/api/auth/**").hasRole("OWNER")
