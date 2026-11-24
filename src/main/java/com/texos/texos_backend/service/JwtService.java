@@ -124,6 +124,7 @@ public class JwtService {
                 claims.getSubject(),
                 claims.get("role", String.class),
                 claims.get("tokenVersion", Integer.class),
+                claims.get("restaurantId", Long.class),
                 expiration == null ? null : expiration.getTime());
     }
 
@@ -170,5 +171,6 @@ public class JwtService {
             String subject,
             String role,
             Integer tokenVersion,
+            Long restaurantId,
             Long expirationTimeMillis) {}
 }

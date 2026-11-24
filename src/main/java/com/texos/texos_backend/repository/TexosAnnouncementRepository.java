@@ -20,4 +20,17 @@ public interface TexosAnnouncementRepository extends JpaRepository<TexosAnnounce
             order by announcement.createdAt desc
             """)
     List<TexosAnnouncement> findCurrentAnnouncements(@Param("now") LocalDateTime now);
+
+    @Query("""
+            select count(announcement)
+            from TexosAnnouncement announcement
+            where announcement.active = true
+              and (
+                (announcement.startsAt > :from and announcement.startsAt <= :to)
+                or (announcement.endsAt > :from and announcement.endsAt <= :to)
+              )
+            """)
+    long countAnnouncementBoundariesBetween(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
 }

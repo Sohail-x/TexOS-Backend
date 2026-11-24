@@ -4,9 +4,11 @@ import com.texos.texos_backend.dto.AnnouncementRequest;
 import com.texos.texos_backend.entity.TexosAnnouncement;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.repository.TexosAnnouncementRepository;
+import com.texos.texos_backend.service.RestaurantLiveUpdateEvent;
 import jakarta.validation.Valid;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,9 +26,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnnouncementController {
 
     private final TexosAnnouncementRepository announcements;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public AnnouncementController(TexosAnnouncementRepository announcements) {
+    public AnnouncementController(
+            TexosAnnouncementRepository announcements,
+            ApplicationEventPublisher eventPublisher) {
         this.announcements = announcements;
+        this.eventPublisher = eventPublisher;
     }
 
     @GetMapping("/api/announcements/active")
@@ -45,7 +51,9 @@ public class AnnouncementController {
         validateDates(request);
         TexosAnnouncement announcement = new TexosAnnouncement();
         apply(announcement, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(announcements.save(announcement));
+        TexosAnnouncement saved = announcements.save(announcement);
+        publishAnnouncementChange();
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
     @PutMapping("/api/admin/announcements/{id}")
@@ -55,12 +63,15 @@ public class AnnouncementController {
         validateDates(request);
         TexosAnnouncement announcement = findAnnouncement(id);
         apply(announcement, request);
-        return announcements.save(announcement);
+        TexosAnnouncement saved = announcements.save(announcement);
+        publishAnnouncementChange();
+        return saved;
     }
 
     @DeleteMapping("/api/admin/announcements/{id}")
     public ResponseEntity<Void> deleteAnnouncement(@PathVariable Long id) {
         announcements.delete(findAnnouncement(id));
+        publishAnnouncementChange();
         return ResponseEntity.noContent().build();
     }
 
@@ -70,7 +81,9 @@ public class AnnouncementController {
             @RequestParam boolean active) {
         TexosAnnouncement announcement = findAnnouncement(id);
         announcement.setActive(active);
-        return announcements.save(announcement);
+        TexosAnnouncement saved = announcements.save(announcement);
+        publishAnnouncementChange();
+        return saved;
     }
 
     private TexosAnnouncement findAnnouncement(Long id) {
@@ -91,5 +104,9 @@ public class AnnouncementController {
         announcement.setMessage(request.getMessage().trim());
         announcement.setStartsAt(request.getStartsAt());
         announcement.setEndsAt(request.getEndsAt());
+    }
+
+    private void publishAnnouncementChange() {
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.announcementsChanged());
     }
 }

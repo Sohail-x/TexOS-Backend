@@ -169,6 +169,7 @@ class OrderApprovalServiceTest {
                     loyaltyService,
                     billService,
                     messagingTemplate,
+                    mock(org.springframework.context.ApplicationEventPublisher.class),
                     "http://localhost:5173");
         }
     }

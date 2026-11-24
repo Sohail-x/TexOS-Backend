@@ -12,6 +12,7 @@ import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.repository.*;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +56,7 @@ public class RestaurantPaymentService {
     private final OwnerRepository ownerRepository;
     private final LoyaltyService loyaltyService;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${app.customer-base-url}")
     private String customerBaseUrl;
@@ -280,6 +282,8 @@ public class RestaurantPaymentService {
             orderRepository.save(order);
             loyaltyService.processOrderLifecycle(order);
         }
+        eventPublisher.publishEvent(
+                RestaurantLiveUpdateEvent.ordersChanged(restaurantId));
         audit(transaction, null, "OFFLINE_PAYMENT_COLLECTED", "OWNER", ownerId,
                 Map.of("method", method, "amount", amount));
         return transactionView(transaction);
@@ -329,6 +333,8 @@ public class RestaurantPaymentService {
         notification.setPriority(0);
         notification.setNotificationStatus("PENDING");
         notificationRepository.save(notification);
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
+                table.getRestaurant().getId(), "PAYMENT_NOTIFICATIONS_CHANGED"));
         return assistanceView(assistance);
     }
 
@@ -362,6 +368,8 @@ public class RestaurantPaymentService {
         notification.setPriority(0);
         notification.setNotificationStatus("PENDING");
         notificationRepository.save(notification);
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
+                assistance.getRestaurant().getId(), "PAYMENT_NOTIFICATIONS_CHANGED"));
         return assistanceView(assistance);
     }
 
@@ -415,6 +423,8 @@ public class RestaurantPaymentService {
         notification.setNotificationStatus("DISMISSED");
         notification.setClosedAt(LocalDateTime.now(ZoneOffset.UTC));
         notificationRepository.save(notification);
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
+                restaurantId, "PAYMENT_NOTIFICATIONS_CHANGED"));
     }
 
     @Transactional
@@ -445,6 +455,8 @@ public class RestaurantPaymentService {
         notification.setNotificationStatus("ASSIGNED");
         notification.setClosedAt(assignedAt);
         notificationRepository.save(notification);
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
+                restaurantId, "PAYMENT_NOTIFICATIONS_CHANGED"));
         Map<String, Object> result = assistanceView(assistance);
         result.put("message", "A waiter will be with you shortly. Please wait.");
         return result;
@@ -681,6 +693,8 @@ public class RestaurantPaymentService {
                     loyaltyService.processOrderLifecycle(order);
                 }
             }
+            eventPublisher.publishEvent(
+                    RestaurantLiveUpdateEvent.ordersChanged(transaction.getRestaurant().getId()));
             transactionRepository.save(transaction);
             attemptRepository.save(attempt);
             persistPaymentReceipt(transaction);
@@ -722,6 +736,8 @@ public class RestaurantPaymentService {
         notification.setPriority(1);
         notification.setNotificationStatus("PENDING");
         notificationRepository.save(notification);
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
+                transaction.getRestaurant().getId(), "PAYMENT_NOTIFICATIONS_CHANGED"));
     }
 
     private List<RestaurantOrder> lockAndValidateBillOrders(

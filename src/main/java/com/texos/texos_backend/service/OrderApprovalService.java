@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.security.SecureRandom;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,7 @@ public class OrderApprovalService {
     private final LoyaltyService loyaltyService;
     private final BillService billService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ApplicationEventPublisher eventPublisher;
     private final String frontendOrigin;
     private final ConcurrentHashMap<String, AttemptWindow> attemptsByAddress = new ConcurrentHashMap<>();
 
@@ -63,6 +65,7 @@ public class OrderApprovalService {
             LoyaltyService loyaltyService,
             BillService billService,
             SimpMessagingTemplate messagingTemplate,
+            ApplicationEventPublisher eventPublisher,
             @Value("${app.frontend-origin}") String frontendOrigin) {
         this.restaurantRepository = restaurantRepository;
         this.orderRepository = orderRepository;
@@ -75,6 +78,7 @@ public class OrderApprovalService {
         this.loyaltyService = loyaltyService;
         this.billService = billService;
         this.messagingTemplate = messagingTemplate;
+        this.eventPublisher = eventPublisher;
         this.frontendOrigin = frontendOrigin.replaceAll("/+$", "");
     }
 
@@ -110,6 +114,9 @@ public class OrderApprovalService {
             RestaurantOrder released = orderRepository.save(order);
             publishOwnerOrder(restaurantId, released);
         }
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.ordersChanged(restaurantId));
+        eventPublisher.publishEvent(
+                RestaurantLiveUpdateEvent.approvalChanged(restaurantId));
         return toSettings(restaurant);
     }
 
@@ -142,6 +149,8 @@ public class OrderApprovalService {
         accessCodeRepository.revokeActiveByRestaurantId(restaurantId);
         revokeSessions(restaurantId);
         pushService.deleteForRestaurant(restaurantId);
+        eventPublisher.publishEvent(
+                RestaurantLiveUpdateEvent.approvalChanged(restaurantId));
         return toSettings(restaurant);
     }
 
@@ -254,6 +263,9 @@ public class OrderApprovalService {
             messagingTemplate.convertAndSend("/topic/restaurants/" + restaurantId + "/orders", response);
         }
         messagingTemplate.convertAndSend("/topic/orders/" + saved.getOrderNumber(), response);
+        eventPublisher.publishEvent(RestaurantLiveUpdateEvent.ordersChanged(restaurantId));
+        eventPublisher.publishEvent(
+                RestaurantLiveUpdateEvent.approvalChanged(restaurantId));
         return response;
     }
 

@@ -212,6 +212,8 @@ order.setPaymentStatus(PaymentStatus.PENDING);
                     "/topic/restaurants/" + savedOrder.getRestaurant().getId() + "/orders",
                     response
             );
+            eventPublisher.publishEvent(
+                    RestaurantLiveUpdateEvent.ordersChanged(savedOrder.getRestaurant().getId()));
         } else {
             eventPublisher.publishEvent(new OrderApprovalPendingEvent(
                     savedOrder.getRestaurant().getId(),
@@ -370,6 +372,7 @@ public OrderResponse updateOrderStatus(
             "/topic/orders/" + savedOrder.getOrderNumber(),
             response
     );
+    eventPublisher.publishEvent(RestaurantLiveUpdateEvent.ordersChanged(restaurantId));
 
     return response;
 }
@@ -409,7 +412,10 @@ public OrderResponse updatePaymentStatus(
             messagingTemplate.convertAndSend("/topic/restaurants/" + restaurantId + "/orders", updated);
             messagingTemplate.convertAndSend("/topic/orders/" + saved.getOrderNumber(), updated);
         }
-        if (updatedTarget != null) return updatedTarget;
+        if (updatedTarget != null) {
+            eventPublisher.publishEvent(RestaurantLiveUpdateEvent.ordersChanged(restaurantId));
+            return updatedTarget;
+        }
         throw new ResourceConflictException("No eligible orders were found in this sitting for the requested payment update.");
     }
     throw new InvalidRequestException(

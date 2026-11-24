@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -69,6 +70,7 @@ class RestaurantPaymentServiceRegressionTest {
     @Mock private PaymentReceiptRepository receiptRepository;
     @Mock private OwnerRepository ownerRepository;
     @Mock private LoyaltyService loyaltyService;
+    @Mock private ApplicationEventPublisher eventPublisher;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
