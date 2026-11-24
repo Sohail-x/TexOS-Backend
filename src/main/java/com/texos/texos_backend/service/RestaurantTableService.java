@@ -9,6 +9,9 @@ import com.texos.texos_backend.exception.DuplicateResourceException;
 import com.texos.texos_backend.exception.InvalidRequestException;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 
+import com.texos.texos_backend.repository.CustomerPaymentTransactionRepository;
+import com.texos.texos_backend.repository.OfflineAssistanceRequestRepository;
+import com.texos.texos_backend.repository.RestaurantOrderRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import com.texos.texos_backend.repository.RestaurantTableRepository;
 
@@ -29,6 +32,9 @@ public class RestaurantTableService {
     private final RestaurantTableRepository tableRepository;
     private final RestaurantRepository restaurantRepository;
     private final QrCodeService qrCodeService;
+    private final RestaurantOrderRepository orderRepository;
+    private final CustomerPaymentTransactionRepository paymentTransactionRepository;
+    private final OfflineAssistanceRequestRepository assistanceRequestRepository;
 
     @Value("${app.customer-base-url}")
     private String customerBaseUrl;
@@ -158,5 +164,18 @@ private byte[] ensureQrImage(RestaurantTable table) {
         table.setActive(active);
 
         return tableRepository.save(table);
+    }
+
+    @Transactional
+    public void deleteTable(Long restaurantId, Long tableId) {
+        RestaurantTable table = getTableById(restaurantId, tableId);
+        if (orderRepository.existsByTable_Id(tableId)
+                || paymentTransactionRepository.existsByTable_Id(tableId)
+                || assistanceRequestRepository.existsByTable_Id(tableId)) {
+            throw new InvalidRequestException(
+                    "This table has existing orders, payments, or service requests and cannot be deleted. Deactivate it instead.");
+        }
+
+        tableRepository.delete(table);
     }
 }

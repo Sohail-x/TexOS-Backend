@@ -80,6 +80,15 @@ public class RestaurantTableController {
         return ResponseEntity.ok(toResponse(table));
     }
 
+    @DeleteMapping("/{tableId}")
+    public ResponseEntity<Void> deleteTable(
+            @PathVariable Long restaurantId,
+            @PathVariable Long tableId) {
+
+        tableService.deleteTable(restaurantId, tableId);
+        return ResponseEntity.noContent().build();
+    }
+
     private RestaurantTableResponse toResponse(RestaurantTable table) {
 
         RestaurantTableResponse response =

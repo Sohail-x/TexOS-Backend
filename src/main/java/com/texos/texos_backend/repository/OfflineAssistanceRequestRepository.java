@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 public interface OfflineAssistanceRequestRepository extends JpaRepository<OfflineAssistanceRequest, Long> {
+    boolean existsByTable_Id(Long tableId);
+
     Optional<OfflineAssistanceRequest> findByRestaurant_IdAndActiveBillKey(Long restaurantId, String activeBillKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

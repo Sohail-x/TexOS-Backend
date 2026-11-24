@@ -18,6 +18,8 @@ import jakarta.persistence.LockModeType;
 
 public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder, Long> {
 
+    boolean existsByTable_Id(Long tableId);
+
     @Query("""
             select count(order) from RestaurantOrder order
             where order.restaurant.id = :restaurantId

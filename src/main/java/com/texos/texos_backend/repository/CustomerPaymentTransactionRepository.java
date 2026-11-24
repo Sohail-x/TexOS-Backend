@@ -12,6 +12,8 @@ import java.util.Optional;
 import java.util.Collection;
 
 public interface CustomerPaymentTransactionRepository extends JpaRepository<CustomerPaymentTransaction, Long> {
+    boolean existsByTable_Id(Long tableId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select transaction from CustomerPaymentTransaction transaction
