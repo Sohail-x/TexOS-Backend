@@ -121,6 +121,17 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
                 left join fetch order.items
                 left join fetch order.restaurant
                 left join fetch order.table
+                where order.id in :orderIds
+                """)
+        List<RestaurantOrder> findAllWithItemsRestaurantAndTableByIdIn(
+                @Param("orderIds") Collection<Long> orderIds);
+
+        @Query("""
+                select distinct order
+                from RestaurantOrder order
+                left join fetch order.items
+                left join fetch order.restaurant
+                left join fetch order.table
                 where order.restaurant.id = :restaurantId
                   and order.orderStatus in :statuses
                 order by order.createdAt desc

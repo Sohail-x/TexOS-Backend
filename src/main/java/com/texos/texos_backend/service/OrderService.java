@@ -457,12 +457,35 @@ public OrderResponse updatePaymentStatus(
     public List<OrderResponse> getRecentOrdersForOwner(Long restaurantId) {
         long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
         try {
-            List<OrderResponse> responses = orderRepository
+            List<RestaurantOrder> visibleOrders = orderRepository
                     .findTop10ByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
                     .stream()
                     .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
                             && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
-                    .map(this::mapToResponse).toList();
+                    .toList();
+            if (visibleOrders.isEmpty()) {
+                DashboardRequestMeasurements.recordResponseOrderCount(0);
+                return List.of();
+            }
+
+            List<Long> orderIds = visibleOrders.stream()
+                    .map(RestaurantOrder::getId)
+                    .toList();
+            orderRepository.findAllWithItemsRestaurantAndTableByIdIn(orderIds);
+
+            Map<Long, Bill> billsByOrderId = new LinkedHashMap<>();
+            for (Bill bill : billRepository.findAllByOrder_IdIn(orderIds)) {
+                billsByOrderId.put(bill.getOrder().getId(), bill);
+            }
+
+            List<OrderResponse> responses = new ArrayList<>(visibleOrders.size());
+            for (RestaurantOrder order : visibleOrders) {
+                Bill bill = billsByOrderId.get(order.getId());
+                if (bill == null) {
+                    throw new ResourceNotFoundException("Bill not found");
+                }
+                responses.add(mapToResponse(order, billService.mapToResponse(bill)));
+            }
             DashboardRequestMeasurements.recordResponseOrderCount(responses.size());
             return responses;
         } finally {
