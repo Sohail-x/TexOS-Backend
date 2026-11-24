@@ -421,6 +421,10 @@ public OrderResponse updatePaymentStatus(
     }
 
     private OrderResponse mapToResponse(RestaurantOrder order) {
+        return mapToResponse(order, billService.getBillByOrderNumber(order.getOrderNumber()));
+    }
+
+    private OrderResponse mapToResponse(RestaurantOrder order, BillResponse billResponse) {
         List<OrderItemResponse> itemResponses = order.getItems().stream().map(item -> {
             OrderItemResponse response = new OrderItemResponse();
             response.setItemId(item.getMenuItem() != null ? item.getMenuItem().getId() : null);
@@ -444,7 +448,7 @@ public OrderResponse updatePaymentStatus(
         response.setItems(itemResponses);
         response.setTotalAmount(order.getTotalAmount());
         response.setCreatedAt(order.getCreatedAt());
-        response.setBill(billService.getBillByOrderNumber(order.getOrderNumber()));
+        response.setBill(billResponse);
         return response;
     }
 
@@ -462,12 +466,35 @@ public OrderResponse updatePaymentStatus(
         List<OrderStatus> activeStatuses = List.of(
                 OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY
         );
-        return orderRepository
+        Map<Long, RestaurantOrder> visibleOrdersById = new LinkedHashMap<>();
+        orderRepository
                 .findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(restaurantId, activeStatuses)
                 .stream()
                 .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
                         && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
-                .map(this::mapToResponse).toList();
+                .forEach(order -> visibleOrdersById.putIfAbsent(order.getId(), order));
+
+        if (visibleOrdersById.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> orderIds = new ArrayList<>(visibleOrdersById.keySet());
+        Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
+        for (Bill bill : billRepository.findAllByOrder_IdIn(orderIds)) {
+            billResponsesByOrderId.put(
+                    bill.getOrder().getId(),
+                    billService.mapToResponse(bill));
+        }
+
+        List<OrderResponse> responses = new ArrayList<>(visibleOrdersById.size());
+        for (RestaurantOrder order : visibleOrdersById.values()) {
+            BillResponse billResponse = billResponsesByOrderId.get(order.getId());
+            if (billResponse == null) {
+                throw new ResourceNotFoundException("Bill not found");
+            }
+            responses.add(mapToResponse(order, billResponse));
+        }
+        return responses;
     }
 
     private void ensureOwnerVisible(RestaurantOrder order) {

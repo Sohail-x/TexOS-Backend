@@ -21,60 +21,37 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
     boolean existsByTable_Id(Long tableId);
 
     @Query("""
-            select count(order) from RestaurantOrder order
+            select count(order) as totalOrders,
+                   count(case when order.orderStatus = :newStatus then order.id end) as newOrders,
+                   count(case when order.orderStatus = :preparingStatus then order.id end) as preparingOrders,
+                   count(case when order.orderStatus = :readyStatus then order.id end) as readyOrders,
+                   count(case when order.orderStatus = :servedStatus then order.id end) as servedOrders,
+                   count(case when order.orderStatus = :cancelledStatus then order.id end) as cancelledOrders,
+                   count(case when order.paymentStatus = :pendingPaymentStatus then order.id end) as pendingPayments,
+                   count(case when order.paymentStatus = :paidPaymentStatus then order.id end) as paidOrders,
+                   coalesce(sum(case
+                       when order.paymentStatus = :paidPaymentStatus
+                        and order.orderStatus <> :cancelledStatus
+                       then order.totalAmount
+                       else null
+                   end), 0) as totalRevenue
+            from RestaurantOrder order
             where order.restaurant.id = :restaurantId
               and order.createdAt >= :start and order.createdAt < :end
               and order.approvalStatus not in :excludedStatuses
             """)
-    long countVisibleOrdersForDashboard(
+    DashboardOrderSummary getDashboardOrderSummary(
             @Param("restaurantId") Long restaurantId,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end,
-            @Param("excludedStatuses") List<OrderApprovalStatus> excludedStatuses);
-
-    @Query("""
-            select count(order) from RestaurantOrder order
-            where order.restaurant.id = :restaurantId
-              and order.createdAt >= :start and order.createdAt < :end
-              and order.orderStatus = :orderStatus
-              and order.approvalStatus not in :excludedStatuses
-            """)
-    long countVisibleOrdersByStatusForDashboard(
-            @Param("restaurantId") Long restaurantId,
-            @Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end,
-            @Param("orderStatus") OrderStatus orderStatus,
-            @Param("excludedStatuses") List<OrderApprovalStatus> excludedStatuses);
-
-    @Query("""
-            select count(order) from RestaurantOrder order
-            where order.restaurant.id = :restaurantId
-              and order.createdAt >= :start and order.createdAt < :end
-              and order.paymentStatus = :paymentStatus
-              and order.approvalStatus not in :excludedStatuses
-            """)
-    long countVisiblePaymentsForDashboard(
-            @Param("restaurantId") Long restaurantId,
-            @Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end,
-            @Param("paymentStatus") PaymentStatus paymentStatus,
-            @Param("excludedStatuses") List<OrderApprovalStatus> excludedStatuses);
-
-    @Query("""
-            select coalesce(sum(order.totalAmount), 0) from RestaurantOrder order
-            where order.restaurant.id = :restaurantId
-              and order.createdAt >= :start and order.createdAt < :end
-              and order.paymentStatus = :paidStatus
-              and order.orderStatus <> :cancelledStatus
-              and order.approvalStatus not in :excludedStatuses
-            """)
-    BigDecimal calculateVisibleRevenueForDashboard(
-            @Param("restaurantId") Long restaurantId,
-            @Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end,
-            @Param("paidStatus") PaymentStatus paidStatus,
+            @Param("excludedStatuses") List<OrderApprovalStatus> excludedStatuses,
+            @Param("newStatus") OrderStatus newStatus,
+            @Param("preparingStatus") OrderStatus preparingStatus,
+            @Param("readyStatus") OrderStatus readyStatus,
+            @Param("servedStatus") OrderStatus servedStatus,
             @Param("cancelledStatus") OrderStatus cancelledStatus,
-            @Param("excludedStatuses") List<OrderApprovalStatus> excludedStatuses);
+            @Param("pendingPaymentStatus") PaymentStatus pendingPaymentStatus,
+            @Param("paidPaymentStatus") PaymentStatus paidPaymentStatus);
 
         Optional<RestaurantOrder> findByOrderNumber(String orderNumber);
 
@@ -138,7 +115,19 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
 
         List<RestaurantOrder> findTop10ByRestaurant_IdOrderByCreatedAtDesc(Long restaurantId);
 
-        List<RestaurantOrder> findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(Long restaurantId, List<OrderStatus> statuses);
+        @Query("""
+                select distinct order
+                from RestaurantOrder order
+                left join fetch order.items
+                left join fetch order.restaurant
+                left join fetch order.table
+                where order.restaurant.id = :restaurantId
+                  and order.orderStatus in :statuses
+                order by order.createdAt desc
+                """)
+        List<RestaurantOrder> findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
+                @Param("restaurantId") Long restaurantId,
+                @Param("statuses") List<OrderStatus> statuses);
 
 
         long countByRestaurant_IdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(Long restaurantId, LocalDateTime start, LocalDateTime end);

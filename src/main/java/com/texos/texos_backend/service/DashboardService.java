@@ -6,10 +6,10 @@ import com.texos.texos_backend.entity.OrderApprovalStatus;
 import com.texos.texos_backend.entity.PaymentStatus;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.repository.DashboardOrderSummary;
 import com.texos.texos_backend.repository.RestaurantOrderRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -45,65 +45,32 @@ public class DashboardService {
         LocalDateTime start = today.atStartOfDay();
         LocalDateTime end = today.plusDays(1).atStartOfDay();
 
-        long totalOrders =
-                orderRepository.countVisibleOrdersForDashboard(
-                        restaurantId, start, end, HIDDEN_APPROVAL_STATUSES);
-
-        long newOrders = countByStatus(
-                restaurantId, start, end, OrderStatus.NEW);
-
-        long preparingOrders = countByStatus(
-                restaurantId, start, end, OrderStatus.PREPARING);
-
-        long readyOrders = countByStatus(
-                restaurantId, start, end, OrderStatus.READY);
-
-        long servedOrders = countByStatus(
-                restaurantId, start, end, OrderStatus.SERVED);
-
-        long cancelledOrders = countByStatus(
-                restaurantId, start, end, OrderStatus.CANCELLED);
-
-        long pendingPayments =
-                orderRepository.countVisiblePaymentsForDashboard(
-                        restaurantId, start, end, PaymentStatus.PENDING, HIDDEN_APPROVAL_STATUSES);
-
-        long paidOrders =
-                orderRepository.countVisiblePaymentsForDashboard(
-                        restaurantId, start, end, PaymentStatus.PAID, HIDDEN_APPROVAL_STATUSES);
-
-        BigDecimal totalRevenue = orderRepository.calculateVisibleRevenueForDashboard(
+        DashboardOrderSummary summary = orderRepository.getDashboardOrderSummary(
                 restaurantId,
                 start,
                 end,
-                PaymentStatus.PAID,
+                HIDDEN_APPROVAL_STATUSES,
+                OrderStatus.NEW,
+                OrderStatus.PREPARING,
+                OrderStatus.READY,
+                OrderStatus.SERVED,
                 OrderStatus.CANCELLED,
-                HIDDEN_APPROVAL_STATUSES
-        );
+                PaymentStatus.PENDING,
+                PaymentStatus.PAID);
 
         return new DashboardSummaryResponse(
                 restaurant.getId(),
                 restaurant.getRestaurantName(),
                 today,
-                totalOrders,
-                newOrders,
-                preparingOrders,
-                readyOrders,
-                servedOrders,
-                cancelledOrders,
-                pendingPayments,
-                paidOrders,
-                totalRevenue
+                summary.getTotalOrders(),
+                summary.getNewOrders(),
+                summary.getPreparingOrders(),
+                summary.getReadyOrders(),
+                summary.getServedOrders(),
+                summary.getCancelledOrders(),
+                summary.getPendingPayments(),
+                summary.getPaidOrders(),
+                summary.getTotalRevenue()
         );
-    }
-
-    private long countByStatus(
-            Long restaurantId,
-            LocalDateTime start,
-            LocalDateTime end,
-            OrderStatus status) {
-
-        return orderRepository.countVisibleOrdersByStatusForDashboard(
-                restaurantId, start, end, status, HIDDEN_APPROVAL_STATUSES);
     }
 }
