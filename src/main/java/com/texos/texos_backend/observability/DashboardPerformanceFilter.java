@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 public class DashboardPerformanceFilter extends OncePerRequestFilter {
@@ -24,6 +25,18 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
             DashboardPerformanceFilter.class.getName() + ".measurement";
     private static final String NOTIFICATION_NEXT_ROUTE =
             "/api/restaurants/{restaurantId}/payments/notifications/next";
+    private static final String LOYALTY_ROUTE_PREFIX =
+            "/api/restaurants/{restaurantId}/loyalty/";
+    private static final String LOYALTY_REWARD_CREATE_ROUTE =
+            LOYALTY_ROUTE_PREFIX + "reward/create";
+    private static final String LOYALTY_REWARD_UPDATE_ROUTE =
+            LOYALTY_ROUTE_PREFIX + "reward/update";
+    private static final String LOYALTY_REWARD_STATUS_ROUTE =
+            LOYALTY_ROUTE_PREFIX + "reward/status";
+    private static final String LOYALTY_REWARD_ARCHIVE_ROUTE =
+            LOYALTY_ROUTE_PREFIX + "reward/archive";
+    private static final String LOYALTY_SETTINGS_UPDATE_ROUTE =
+            LOYALTY_ROUTE_PREFIX + "settings/update";
 
     private final MeterRegistry meterRegistry;
     private final DataSource dataSource;
@@ -52,7 +65,7 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         String route = routeFor(request);
         DashboardRequestMeasurements.Measurement measurement =
                 DashboardRequestMeasurements.begin(route);
-        MeasuredHttpServletResponse measuredResponse = isOrderDashboardRoute(route)
+        MeasuredHttpServletResponse measuredResponse = isMeasuredResponseRoute(route)
                 ? new MeasuredHttpServletResponse(response)
                 : null;
         HttpServletResponse instrumentedResponse =
@@ -261,9 +274,12 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                     .register(meterRegistry)
                     .record(responseBytes);
         }
+        if (isOwnerRewardRoute(route)) {
+            recordOwnerResponseSummaries(endpointType, status, outcome, measurement);
+        }
 
         HikariPoolMXBean pool = hikariPool();
-        log.atInfo()
+        LoggingEventBuilder event = log.atInfo()
                 .addKeyValue("event", "api_request_performance")
                 .addKeyValue("endpoint_type", endpointType)
                 .addKeyValue("route", route)
@@ -302,8 +318,94 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 .addKeyValue("hikari_pending",
                         pool == null ? -1 : pool.getThreadsAwaitingConnection())
                 .addKeyValue("application_uptime_ms",
-                        ManagementFactory.getRuntimeMXBean().getUptime())
-                .log("api_request_performance");
+                        ManagementFactory.getRuntimeMXBean().getUptime());
+        if (isOwnerRewardRoute(route)) {
+            addOwnerRewardLogFields(event, measurement);
+        }
+        event.log("api_request_performance");
+    }
+
+    private void recordOwnerResponseSummaries(
+            String endpointType,
+            int status,
+            String outcome,
+            DashboardRequestMeasurements.Measurement measurement) {
+        recordApiSummary("texos.api.response.record.count", "records",
+                endpointType, status, outcome, measurement.getResponseRecordCount());
+        recordApiSummary("texos.api.response.record.count", "rewards",
+                endpointType, status, outcome, measurement.getResponseRewardCount());
+        recordApiSummary("texos.api.response.record.count", "redemptions",
+                endpointType, status, outcome, measurement.getResponseRedemptionCount());
+        recordApiSummary("texos.api.response.record.count", "audit_logs",
+                endpointType, status, outcome, measurement.getResponseAuditLogCount());
+        recordApiSummary("texos.api.response.record.count", "transactions",
+                endpointType, status, outcome, measurement.getResponseTransactionCount());
+        recordApiSummary("texos.api.reward.image.count", "images",
+                endpointType, status, outcome, measurement.getRewardImageCount());
+        recordApiSummary("texos.api.reward.image.characters", "data_url",
+                endpointType, status, outcome, measurement.getRewardImageDataUrlCharacters());
+        recordApiSummary("texos.api.reward.image.characters", "external_url",
+                endpointType, status, outcome, measurement.getRewardImageExternalUrlCharacters());
+        for (DashboardRequestMeasurements.Measurement.Stage stage
+                : DashboardRequestMeasurements.Measurement.Stage.values()) {
+            long resultCount = measurement.getRepositoryResultCount(stage);
+            if (resultCount >= 0) {
+                recordApiSummary("texos.api.repository.result.count", stage.metricName(),
+                        endpointType, status, outcome, resultCount);
+            }
+        }
+    }
+
+    private void recordApiSummary(
+            String name,
+            String valueType,
+            String endpointType,
+            int status,
+            String outcome,
+            long value) {
+        if (value < 0) {
+            return;
+        }
+        DistributionSummary.builder(name)
+                .tag("value_type", valueType)
+                .tag("endpoint_type", endpointType)
+                .tag("status", Integer.toString(status))
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .record(value);
+    }
+
+    private static void addOwnerRewardLogFields(
+            LoggingEventBuilder event,
+            DashboardRequestMeasurements.Measurement measurement) {
+        event.addKeyValue("response_record_count", measurement.getResponseRecordCount())
+                .addKeyValue("response_reward_count", measurement.getResponseRewardCount())
+                .addKeyValue("response_redemption_count",
+                        measurement.getResponseRedemptionCount())
+                .addKeyValue("response_audit_log_count", measurement.getResponseAuditLogCount())
+                .addKeyValue("response_transaction_count",
+                        measurement.getResponseTransactionCount())
+                .addKeyValue("reward_image_count", measurement.getRewardImageCount())
+                .addKeyValue("reward_image_data_url_characters",
+                        measurement.getRewardImageDataUrlCharacters())
+                .addKeyValue("reward_image_external_url_characters",
+                        measurement.getRewardImageExternalUrlCharacters())
+                .addKeyValue("slowest_repository_operation",
+                        measurement.getSlowestRepositoryOperation())
+                .addKeyValue("slowest_repository_operation_ms",
+                        measurement.getSlowestRepositoryOperationNanos() < 0
+                                ? -1
+                                : millis(measurement.getSlowestRepositoryOperationNanos()));
+        for (DashboardRequestMeasurements.Measurement.Stage stage
+                : DashboardRequestMeasurements.Measurement.Stage.values()) {
+            if (stage.isOwnerRewardStage()) {
+                event.addKeyValue(stage.metricName() + "_ms", stageMillis(measurement, stage));
+                long resultCount = measurement.getRepositoryResultCount(stage);
+                if (resultCount >= 0) {
+                    event.addKeyValue(stage.metricName() + "_records", resultCount);
+                }
+            }
+        }
     }
 
     private void logAsyncRequest(String route, int status) {
@@ -442,12 +544,30 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 || route.endsWith("/dashboard/active-orders");
     }
 
+    private static boolean isOwnerRewardRoute(String route) {
+        return route.startsWith(LOYALTY_ROUTE_PREFIX);
+    }
+
+    private static boolean isMeasuredResponseRoute(String route) {
+        return isOrderDashboardRoute(route) || isOwnerRewardRoute(route);
+    }
+
     private static String endpointType(String route) {
         return switch (route) {
             case NOTIFICATION_NEXT_ROUTE -> "payment_notification_next";
             case "/api/announcements/active" -> "announcement_active";
             case "/api/auth/me" -> "auth_me";
             case "/api/subscriptions/status" -> "subscription_status";
+            case "/api/restaurants/{restaurantId}/loyalty/overview" -> "owner_loyalty_overview";
+            case "/api/restaurants/{restaurantId}/loyalty/settings" -> "owner_loyalty_settings";
+            case LOYALTY_SETTINGS_UPDATE_ROUTE -> "owner_loyalty_settings_update";
+            case "/api/restaurants/{restaurantId}/loyalty/rewards" -> "owner_loyalty_rewards";
+            case LOYALTY_REWARD_CREATE_ROUTE -> "owner_loyalty_reward_create";
+            case LOYALTY_REWARD_UPDATE_ROUTE -> "owner_loyalty_reward_update";
+            case LOYALTY_REWARD_STATUS_ROUTE -> "owner_loyalty_reward_status";
+            case LOYALTY_REWARD_ARCHIVE_ROUTE -> "owner_loyalty_reward_archive";
+            case "/api/restaurants/{restaurantId}/loyalty/redemptions" -> "owner_loyalty_redemptions";
+            case "/api/restaurants/{restaurantId}/loyalty/audit-logs" -> "owner_loyalty_audit_logs";
             default -> "dashboard";
         };
     }
@@ -457,34 +577,72 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
     }
 
     private static String routeFor(HttpServletRequest request) {
-        if (!"GET".equalsIgnoreCase(request.getMethod())) {
-            return null;
-        }
+        String method = request.getMethod();
         String uri = request.getRequestURI();
         String contextPath = request.getContextPath();
         String path = uri.startsWith(contextPath) ? uri.substring(contextPath.length()) : uri;
-        if ("/api/announcements/active".equals(path)
+        if ("GET".equalsIgnoreCase(method)
+                && ("/api/announcements/active".equals(path)
                 || "/api/auth/me".equals(path)
-                || "/api/subscriptions/status".equals(path)) {
+                || "/api/subscriptions/status".equals(path))) {
             return path;
         }
 
         String[] parts = path.split("/");
-        if (parts.length == 6 && "api".equals(parts[1])
-                && "restaurants".equals(parts[2]) && parts[3].matches("\\d+")
-                && "dashboard".equals(parts[4])) {
-            return switch (parts[5]) {
-                case "summary" -> "/api/restaurants/{restaurantId}/dashboard/summary";
-                case "recent-orders" -> "/api/restaurants/{restaurantId}/dashboard/recent-orders";
-                case "active-orders" -> "/api/restaurants/{restaurantId}/dashboard/active-orders";
-                default -> null;
-            };
+        if (parts.length >= 5 && "api".equals(parts[1])
+                && "restaurants".equals(parts[2]) && parts[3].matches("\\d+")) {
+            if (parts.length == 6 && "GET".equalsIgnoreCase(method)
+                    && "dashboard".equals(parts[4])) {
+                return switch (parts[5]) {
+                    case "summary" -> "/api/restaurants/{restaurantId}/dashboard/summary";
+                    case "recent-orders" -> "/api/restaurants/{restaurantId}/dashboard/recent-orders";
+                    case "active-orders" -> "/api/restaurants/{restaurantId}/dashboard/active-orders";
+                    default -> null;
+                };
+            }
+            if (parts.length >= 6 && "loyalty".equals(parts[4])) {
+                return loyaltyRoute(method, parts);
+            }
         }
-        if (parts.length == 7 && "api".equals(parts[1])
+        if ("GET".equalsIgnoreCase(method) && parts.length == 7 && "api".equals(parts[1])
                 && "restaurants".equals(parts[2]) && parts[3].matches("\\d+")
                 && "payments".equals(parts[4]) && "notifications".equals(parts[5])
                 && "next".equals(parts[6])) {
             return NOTIFICATION_NEXT_ROUTE;
+        }
+        return null;
+    }
+
+    private static String loyaltyRoute(String method, String[] parts) {
+        if (parts.length == 6) {
+            return switch (parts[5]) {
+                case "overview" -> "GET".equalsIgnoreCase(method)
+                        ? LOYALTY_ROUTE_PREFIX + "overview" : null;
+                case "settings" -> "GET".equalsIgnoreCase(method)
+                        ? LOYALTY_ROUTE_PREFIX + "settings"
+                        : "PUT".equalsIgnoreCase(method) ? LOYALTY_SETTINGS_UPDATE_ROUTE : null;
+                case "rewards" -> "GET".equalsIgnoreCase(method)
+                        ? LOYALTY_ROUTE_PREFIX + "rewards"
+                        : "POST".equalsIgnoreCase(method)
+                                ? LOYALTY_REWARD_CREATE_ROUTE : null;
+                case "redemptions" -> "GET".equalsIgnoreCase(method)
+                        ? LOYALTY_ROUTE_PREFIX + "redemptions" : null;
+                case "audit-logs" -> "GET".equalsIgnoreCase(method)
+                        ? LOYALTY_ROUTE_PREFIX + "audit-logs" : null;
+                default -> null;
+            };
+        }
+        if (parts.length == 7 && "rewards".equals(parts[5]) && parts[6].matches("\\d+")
+                && "PUT".equalsIgnoreCase(method)) {
+            return LOYALTY_REWARD_UPDATE_ROUTE;
+        }
+        if (parts.length == 8 && "rewards".equals(parts[5]) && parts[6].matches("\\d+")
+                && "status".equals(parts[7]) && "PATCH".equalsIgnoreCase(method)) {
+            return LOYALTY_REWARD_STATUS_ROUTE;
+        }
+        if (parts.length == 7 && "rewards".equals(parts[5]) && parts[6].matches("\\d+")
+                && "DELETE".equalsIgnoreCase(method)) {
+            return LOYALTY_REWARD_ARCHIVE_ROUTE;
         }
         return null;
     }

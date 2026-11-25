@@ -18,6 +18,7 @@ public class DashboardMvcInstrumentation implements WebMvcConfigurer {
                         "/api/restaurants/*/dashboard/recent-orders",
                         "/api/restaurants/*/dashboard/active-orders",
                         "/api/restaurants/*/payments/notifications/next",
+                        "/api/restaurants/*/loyalty/**",
                         "/api/announcements/active",
                         "/api/auth/me",
                         "/api/subscriptions/status");

@@ -1,6 +1,7 @@
 package com.texos.texos_backend.observability;
 
 import com.texos.texos_backend.controller.DashboardController;
+import com.texos.texos_backend.controller.LoyaltyController;
 import com.texos.texos_backend.controller.AnnouncementController;
 import com.texos.texos_backend.controller.AuthController;
 import com.texos.texos_backend.controller.RestaurantPaymentController;
@@ -18,6 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
 @ControllerAdvice(assignableTypes = {
         DashboardController.class,
+        LoyaltyController.class,
         RestaurantPaymentController.class,
         AnnouncementController.class,
         AuthController.class,

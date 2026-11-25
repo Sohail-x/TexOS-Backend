@@ -8,6 +8,8 @@ import com.texos.texos_backend.dto.LoyaltyTransactionSummary;
 import com.texos.texos_backend.entity.*;
 import com.texos.texos_backend.repository.*;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements.Measurement.Stage;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -18,6 +20,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import java.math.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -40,9 +43,15 @@ public class LoyaltyService {
  private final CustomerSessionService sessions;
 
  private Restaurant ownedRestaurant(Long id) {
-  String principal=SecurityContextHolder.getContext().getAuthentication()==null?null:SecurityContextHolder.getContext().getAuthentication().getName();
-  Owner owner=owners.findByEmail(principal==null?"":principal.trim().toLowerCase()).or(()->owners.findByPhone(principal)).orElseThrow(()->new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED));
-  return restaurants.findByIdAndOwnerId(id,owner.getId()).orElseThrow(()->new ResourceNotFoundException("Restaurant not found"));
+  long ownershipStartedAtNanos=DashboardRequestMeasurements.startStage();
+  try {
+   String principal=SecurityContextHolder.getContext().getAuthentication()==null?null:SecurityContextHolder.getContext().getAuthentication().getName();
+   Owner owner=measureRepositoryOperation(Stage.SERVICE_OWNER_REPOSITORY,()->owners.findByEmail(principal==null?"":principal.trim().toLowerCase()).or(()->owners.findByPhone(principal)).orElseThrow(()->new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED)));
+   return measureRepositoryOperation(Stage.SERVICE_RESTAURANT_REPOSITORY,()->restaurants.findByIdAndOwnerId(id,owner.getId()).orElseThrow(()->new ResourceNotFoundException("Restaurant not found")));
+  } finally {
+   DashboardRequestMeasurements.recordStageDuration(
+       Stage.SERVICE_OWNERSHIP_VALIDATION,ownershipStartedAtNanos);
+  }
  }
  private RestaurantTable table(String qr) {
   return tables.findByQrTokenAndActiveTrue(qr).orElseThrow(()->new ResourceNotFoundException("Invalid QR code"));
@@ -53,7 +62,10 @@ public class LoyaltyService {
   return customers.findByIdAndRestaurant_IdForUpdate(session.getCustomerId(),restaurantId).orElseThrow(()->new ResourceNotFoundException("Customer not found"));
  }
  private LoyaltyProgram program(Restaurant r) {
-  return programs.findByRestaurant_Id(r.getId()).orElseGet(()->{LoyaltyProgram p=new LoyaltyProgram();p.setRestaurant(r);return programs.save(p);});
+  Optional<LoyaltyProgram> existing=measureRepositoryOperation(Stage.LOYALTY_PROGRAM_REPOSITORY,()->programs.findByRestaurant_Id(r.getId()));
+  if(existing.isPresent())return existing.get();
+  LoyaltyProgram p=new LoyaltyProgram();p.setRestaurant(r);
+  return measureRepositoryOperation(Stage.LOYALTY_PROGRAM_SAVE,()->programs.save(p));
  }
  @Transactional
  public Map<String,Object> customerStatus(String qr,HttpServletRequest req,String from,String to) {
@@ -122,7 +134,14 @@ public class LoyaltyService {
   m.put("transactions",transactions.findCustomerSummaries(r.getId(),c.getId(),PageRequest.of(0,100)).stream().map(this::txView).toList());return m;
  }
  @Transactional
- public Map<String,Object> ownerSettings(Long id) {Restaurant r=ownedRestaurant(id);return settingsView(program(r));}
+ public Map<String,Object> ownerSettings(Long id) {
+  Restaurant r=ownedRestaurant(id);LoyaltyProgram loyaltyProgram=program(r);
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  Map<String,Object> result=settingsView(loyaltyProgram);
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_SETTINGS_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(1,0,0,0,0);
+  return result;
+ }
  @Transactional
  public Map<String,Object> updateSettings(Long id,Map<String,Object> body) {
   Restaurant r=ownedRestaurant(id); LoyaltyProgram p=program(r);
@@ -136,17 +155,34 @@ public class LoyaltyService {
       ||conversionPoints<1||conversionInr.signum()<=0) throw new IllegalArgumentException("Invalid loyalty settings");
   p.setEnabled(enabled);p.setPointsPer100(rate);p.setMinimumRedemptionPoints(minPoints);p.setMinimumOrderAmount(minAmount);p.setPointsExpiryDays(expiry);
   p.setConversionPoints(conversionPoints);p.setConversionInr(conversionInr.setScale(2,RoundingMode.HALF_UP));
-  LoyaltyProgram saved=programs.save(p);
+  LoyaltyProgram saved=measureRepositoryOperation(Stage.OWNER_SETTINGS_SAVE,()->programs.save(p));
   audit(r,"SETTINGS_UPDATED","LOYALTY_PROGRAM",saved.getId(),"enabled="+enabled+", pointsPer100="+rate+", minimumOrderAmount="+minAmount+", expiryDays="+expiry);
-  return settingsView(saved);
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  Map<String,Object> result=settingsView(saved);
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_SETTINGS_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(1,0,0,0,0);
+  return result;
  }
  @Transactional(readOnly=true)
- public List<Map<String,Object>> ownerRewards(Long id) {ownedRestaurant(id);return rewards.findAllByRestaurant_IdAndDeletedFalseOrderByCreatedAtDesc(id).stream().map(this::rewardView).toList();}
+ public List<Map<String,Object>> ownerRewards(Long id) {
+  ownedRestaurant(id);
+  List<LoyaltyReward> rewardEntities=measureRepositoryOperation(
+      Stage.OWNER_REWARDS_LIST,
+      ()->rewards.findAllByRestaurant_IdAndDeletedFalseOrderByCreatedAtDesc(id));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_REWARDS_LIST,rewardEntities.size());
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> result=rewardEntities.stream().map(this::rewardView).toList();
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_REWARD_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(result.size(),result.size(),0,0,0);
+  recordRewardImagePayload(rewardEntities);
+  return result;
+ }
  @Transactional
  public Map<String,Object> saveReward(Long id,Long rewardId,Map<String,Object> body) {
   Restaurant r=ownedRestaurant(id); LoyaltyReward x;
   if(rewardId==null){x=new LoyaltyReward();x.setRestaurant(r);x.setRedemptionCount(0);}
-  else x=rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found"));
+  else x=measureRepositoryOperation(Stage.OWNER_REWARD_LOCK,()->rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found")));
   String name=str(body.get("rewardName"));String type=str(body.get("rewardType")).toUpperCase(Locale.ROOT);
   int points=num(body.get("pointsRequired"),0);
   if(name.isBlank()||points<1||!Set.of("FREE_ITEM","PERCENTAGE_DISCOUNT","FIXED_DISCOUNT").contains(type)) throw new IllegalArgumentException("Enter a reward name, valid reward type, and positive points");
@@ -160,7 +196,7 @@ public class LoyaltyService {
   x.setDiscountPercentage(nullableDecimal(body.get("discountPercentage")));x.setDiscountAmount(nullableDecimal(body.get("discountAmount")));x.setMaximumDiscount(nullableDecimal(body.get("maximumDiscount")));
   x.setTotalQuantity(nullableInt(body.get("totalQuantity")));x.setRemainingQuantity(nullableInt(body.get("remainingQuantity")));
   x.setMaxRedemptions(nullableInt(body.get("maxRedemptions")));x.setStartDate(date(body.get("startDate")));x.setExpiryDate(date(body.get("expiryDate")));
-  if(type.equals("FREE_ITEM")) {Long menuId=nullableLong(body.get("menuItemId"));MenuItem item=menuId==null?null:menuItems.findById(menuId).orElseThrow(()->new ResourceNotFoundException("Menu item not found"));if(item==null||!item.isAvailable()||!item.getCategory().getRestaurant().getId().equals(id))throw new IllegalArgumentException("Select an available menu item from this restaurant");x.setMenuItem(item);}
+  if(type.equals("FREE_ITEM")) {Long menuId=nullableLong(body.get("menuItemId"));MenuItem item=menuId==null?null:measureRepositoryOperation(Stage.OWNER_MENU_ITEM_LOOKUP,()->menuItems.findById(menuId).orElseThrow(()->new ResourceNotFoundException("Menu item not found")));if(item==null||!item.isAvailable()||!item.getCategory().getRestaurant().getId().equals(id))throw new IllegalArgumentException("Select an available menu item from this restaurant");x.setMenuItem(item);}
   if(type.equals("PERCENTAGE_DISCOUNT")&&(x.getDiscountPercentage()==null||x.getDiscountPercentage().signum()<=0||x.getDiscountPercentage().compareTo(new BigDecimal("100"))>0))throw new IllegalArgumentException("Discount percentage must be between 0 and 100");
   if(type.equals("FIXED_DISCOUNT")&&(x.getDiscountAmount()==null||x.getDiscountAmount().signum()<=0))throw new IllegalArgumentException("Enter a valid fixed discount amount");
   if(x.getTotalQuantity()!=null&&x.getTotalQuantity()<1)throw new IllegalArgumentException("Quantity must be positive");
@@ -169,46 +205,151 @@ public class LoyaltyService {
   if(x.getMinimumOrderAmount()!=null&&x.getMinimumOrderAmount().signum()<0)throw new IllegalArgumentException("Minimum order amount cannot be negative");
   if(x.getStartDate()!=null&&x.getExpiryDate()!=null&&!x.getExpiryDate().isAfter(x.getStartDate()))throw new IllegalArgumentException("Expiry date must be after the start date");
   x.setActive(body.get("active")==null||Boolean.TRUE.equals(body.get("active")));
-  LoyaltyReward saved=rewards.save(x);
+  LoyaltyReward saved=measureRepositoryOperation(Stage.OWNER_REWARD_SAVE,()->rewards.save(x));
   audit(r,rewardId==null?"REWARD_CREATED":"REWARD_UPDATED","REWARD",saved.getId(),saved.getRewardName()+" ("+saved.getRewardType()+")");
-  return rewardView(saved);
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  Map<String,Object> result=rewardView(saved);
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_REWARD_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(1,1,0,0,0);
+  recordRewardImagePayload(List.of(saved));
+  return result;
  }
  @Transactional
- public Map<String,Object> setRewardStatus(Long id,Long rewardId,boolean active){Restaurant restaurant=ownedRestaurant(id);LoyaltyReward r=rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found"));r.setActive(active);audit(restaurant,active?"REWARD_ACTIVATED":"REWARD_DEACTIVATED","REWARD",rewardId,r.getRewardName());return rewardView(r);}
+ public Map<String,Object> setRewardStatus(Long id,Long rewardId,boolean active){
+  Restaurant restaurant=ownedRestaurant(id);
+  LoyaltyReward r=measureRepositoryOperation(Stage.OWNER_REWARD_LOCK,()->rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found")));
+  r.setActive(active);audit(restaurant,active?"REWARD_ACTIVATED":"REWARD_DEACTIVATED","REWARD",rewardId,r.getRewardName());
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  Map<String,Object> result=rewardView(r);
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_REWARD_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(1,1,0,0,0);
+  recordRewardImagePayload(List.of(r));
+  return result;
+ }
  @Transactional
- public void deleteReward(Long id,Long rewardId){Restaurant restaurant=ownedRestaurant(id);LoyaltyReward r=rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found"));r.setActive(false);r.setDeleted(true);audit(restaurant,"REWARD_ARCHIVED","REWARD",rewardId,r.getRewardName());}
+ public void deleteReward(Long id,Long rewardId){Restaurant restaurant=ownedRestaurant(id);LoyaltyReward r=measureRepositoryOperation(Stage.OWNER_REWARD_LOCK,()->rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found")));r.setActive(false);r.setDeleted(true);audit(restaurant,"REWARD_ARCHIVED","REWARD",rewardId,r.getRewardName());}
  @Transactional(readOnly=true)
  public Map<String,Object> overview(Long id) {
   ownedRestaurant(id);Map<String,Object> m=new LinkedHashMap<>();
-  LoyaltyAccountOverview accountTotals=accounts.overviewByRestaurant(id);
-  LoyaltyTransactionOverview transactionTotals=transactions.overviewByRestaurant(id);
+  LoyaltyAccountOverview accountTotals=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_ACCOUNT_AGGREGATE,()->accounts.overviewByRestaurant(id));
+  LoyaltyTransactionOverview transactionTotals=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_TRANSACTION_AGGREGATE,()->transactions.overviewByRestaurant(id));
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
   m.put("totalLoyaltyMembers",accountTotals.totalMembers());
   m.put("totalPointsIssued",transactionTotals.totalPointsIssued());
   m.put("totalPointsRedeemed",transactionTotals.totalPointsRedeemed());
   m.put("availablePointsOutstanding",accountTotals.availablePointsOutstanding());
-  m.put("totalRewardsCreated",rewards.countByRestaurant_IdAndDeletedFalse(id));
-  m.put("totalSuccessfulRedemptions",redemptions.countByRestaurant_IdAndStatus(id,"REDEEMED"));
-  List<LoyaltyRedemptionSummary> recentRedemptions=
-      redemptions.findRecentSummariesByRestaurant(id,PageRequest.of(0,100));
-  m.put("recentRedemptions",recentRedemptions.stream().limit(10).map(this::redemptionView).toList());
-  m.put("recentTransactions",transactions.findRecentSummariesByRestaurant(id,PageRequest.of(0,20))
-      .stream().map(this::txView).toList());
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_OVERVIEW_MAPPING,mappingStartedAtNanos);
+  m.put("totalRewardsCreated",measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_REWARD_COUNT,()->rewards.countByRestaurant_IdAndDeletedFalse(id)));
+  m.put("totalSuccessfulRedemptions",measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_REDEMPTION_COUNT,()->redemptions.countByRestaurant_IdAndStatus(id,"REDEEMED")));
+  List<LoyaltyRedemptionSummary> recentRedemptions=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_RECENT_REDEMPTIONS,
+      ()->redemptions.findRecentSummariesByRestaurant(id,PageRequest.of(0,100)));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_OVERVIEW_RECENT_REDEMPTIONS,recentRedemptions.size());
+  long recentRedemptionMappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> recentRedemptionViews=recentRedemptions.stream()
+      .limit(10).map(this::redemptionView).toList();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_REDEMPTION_MAPPING,recentRedemptionMappingStartedAtNanos);
+  m.put("recentRedemptions",recentRedemptionViews);
+  List<LoyaltyTransactionSummary> recentTransactions=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_RECENT_TRANSACTIONS,
+      ()->transactions.findRecentSummariesByRestaurant(id,PageRequest.of(0,20)));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_OVERVIEW_RECENT_TRANSACTIONS,recentTransactions.size());
+  long recentTransactionMappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> recentTransactionViews=recentTransactions.stream()
+      .map(this::txView).toList();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_OVERVIEW_MAPPING,recentTransactionMappingStartedAtNanos);
+  m.put("recentTransactions",recentTransactionViews);
   Map<Long,Long> popular=new LinkedHashMap<>();
   for(LoyaltyRedemptionSummary redemption:recentRedemptions) {
    if(redemption.rewardId()!=null) popular.merge(redemption.rewardId(),1L,Long::sum);
   }
-  List<Map<String,Object>> popularRewards=rewards.findOverviewRewardsByRestaurant(id).stream()
+  List<LoyaltyOverviewReward> overviewRewards=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_REWARDS,()->rewards.findOverviewRewardsByRestaurant(id));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_OVERVIEW_REWARDS,overviewRewards.size());
+  long popularRewardMappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> popularRewards=overviewRewards.stream()
     .map(reward->overviewRewardView(reward,popular.getOrDefault(reward.id(),0L)))
     .sorted((a,b)->Long.compare(((Number)b.get("redemptions")).longValue(),((Number)a.get("redemptions")).longValue())).limit(5).toList();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_OVERVIEW_MAPPING,popularRewardMappingStartedAtNanos);
   m.put("popularRewards",popularRewards);
-  m.put("pointsEarnedOverTime",transactions.findRecentSummariesByRestaurantAndType(id,"EARN",PageRequest.of(0,8)).stream().map(this::txView).toList());
-  m.put("pointsRedeemedOverTime",transactions.findRecentSummariesByRestaurantAndType(id,"REDEEM",PageRequest.of(0,8)).stream().map(this::txView).toList());
+  List<LoyaltyTransactionSummary> earnedTransactions=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_EARNED_TRANSACTIONS,
+      ()->transactions.findRecentSummariesByRestaurantAndType(id,"EARN",PageRequest.of(0,8)));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_OVERVIEW_EARNED_TRANSACTIONS,earnedTransactions.size());
+  long earnedMappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> earnedTransactionViews=earnedTransactions.stream()
+      .map(this::txView).toList();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_OVERVIEW_MAPPING,earnedMappingStartedAtNanos);
+  m.put("pointsEarnedOverTime",earnedTransactionViews);
+  List<LoyaltyTransactionSummary> redeemedTransactions=measureRepositoryOperation(
+      Stage.OWNER_OVERVIEW_REDEEMED_TRANSACTIONS,
+      ()->transactions.findRecentSummariesByRestaurantAndType(id,"REDEEM",PageRequest.of(0,8)));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_OVERVIEW_REDEEMED_TRANSACTIONS,redeemedTransactions.size());
+  long redeemedMappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> redeemedTransactionViews=redeemedTransactions.stream()
+      .map(this::txView).toList();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_OVERVIEW_MAPPING,redeemedMappingStartedAtNanos);
+  m.put("pointsRedeemedOverTime",redeemedTransactionViews);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(
+      recentRedemptionViews.size()+recentTransactionViews.size()+popularRewards.size()
+          +earnedTransactionViews.size()+redeemedTransactionViews.size(),
+      popularRewards.size(),recentRedemptionViews.size(),0,
+      recentTransactionViews.size()+earnedTransactionViews.size()+redeemedTransactionViews.size());
+  DashboardRequestMeasurements.recordRewardImagePayload(0,0,0);
   return m;
  }
  @Transactional(readOnly=true)
- public List<Map<String,Object>> ownerRedemptions(Long id){ownedRestaurant(id);return redemptions.findRecentSummariesByRestaurant(id,PageRequest.of(0,100)).stream().map(this::redemptionView).toList();}
+ public List<Map<String,Object>> ownerRedemptions(Long id){
+  ownedRestaurant(id);
+  List<LoyaltyRedemptionSummary> entities=measureRepositoryOperation(
+      Stage.OWNER_REDEMPTIONS_LIST,
+      ()->redemptions.findRecentSummariesByRestaurant(id,PageRequest.of(0,100)));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_REDEMPTIONS_LIST,entities.size());
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> result=entities.stream().map(this::redemptionView).toList();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_REDEMPTION_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(
+      result.size(),0,result.size(),0,0);
+  DashboardRequestMeasurements.recordRewardImagePayload(0,0,0);
+  return result;
+ }
  @Transactional(readOnly=true)
- public List<Map<String,Object>> ownerAuditLogs(Long id){ownedRestaurant(id);return auditLogs.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id).stream().map(log->{Map<String,Object> row=new LinkedHashMap<>();row.put("id",log.getId());row.put("actor",log.getActorIdentity());row.put("action",log.getAction());row.put("targetType",log.getTargetType());row.put("targetId",log.getTargetId());row.put("details",log.getDetails());row.put("createdAt",log.getCreatedAt());return row;}).toList();}
+ public List<Map<String,Object>> ownerAuditLogs(Long id){
+  ownedRestaurant(id);
+  List<LoyaltyAuditLog> entities=measureRepositoryOperation(
+      Stage.OWNER_AUDIT_LOGS_LIST,
+      ()->auditLogs.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id));
+  DashboardRequestMeasurements.recordRepositoryResultCount(
+      Stage.OWNER_AUDIT_LOGS_LIST,entities.size());
+  long mappingStartedAtNanos=DashboardRequestMeasurements.startStage();
+  List<Map<String,Object>> result=entities.stream().map(log->{
+   Map<String,Object> row=new LinkedHashMap<>();row.put("id",log.getId());
+   row.put("actor",log.getActorIdentity());row.put("action",log.getAction());
+   row.put("targetType",log.getTargetType());row.put("targetId",log.getTargetId());
+   row.put("details",log.getDetails());row.put("createdAt",log.getCreatedAt());return row;
+  }).toList();
+  DashboardRequestMeasurements.recordStageDuration(Stage.OWNER_AUDIT_MAPPING,mappingStartedAtNanos);
+  DashboardRequestMeasurements.recordOwnerResponseCounts(
+      result.size(),0,0,result.size(),0);
+  DashboardRequestMeasurements.recordRewardImagePayload(0,0,0);
+  return result;
+ }
 
  @Transactional
  public void applyRewardToOrder(Long rewardId,Customer customer,Restaurant restaurant,RestaurantOrder order,BigDecimal eligibleSubtotal) {
@@ -446,7 +587,15 @@ public class LoyaltyService {
   m.put("redemptions",redemptions);return m;
  }
  private Map<String,Object> settingsView(LoyaltyProgram p){Map<String,Object>m=new LinkedHashMap<>();m.put("enabled",p.isEnabled());m.put("pointsPer100",p.getPointsPer100());m.put("minimumOrderAmount",p.getMinimumOrderAmount());m.put("minimumRedemptionPoints",p.getMinimumRedemptionPoints());m.put("pointsExpiryDays",p.getPointsExpiryDays());m.put("conversionPoints",p.getConversionPoints());m.put("conversionInr",p.getConversionInr());return m;}
- private Map<String,Object> rewardView(LoyaltyReward r){Map<String,Object>m=new LinkedHashMap<>();m.put("id",r.getId());m.put("rewardName",r.getRewardName());m.put("description",r.getDescription());m.put("imageUrl",r.getImageUrl());m.put("rewardType",r.getRewardType());m.put("pointsRequired",r.getPointsRequired());m.put("menuItemId",r.getMenuItem()==null?null:r.getMenuItem().getId());m.put("menuItemName",r.getMenuItem()==null?null:r.getMenuItem().getItemName());m.put("discountPercentage",r.getDiscountPercentage());m.put("discountAmount",r.getDiscountAmount());m.put("maximumDiscount",r.getMaximumDiscount());m.put("minimumOrderAmount",r.getMinimumOrderAmount());m.put("totalQuantity",r.getTotalQuantity());m.put("remainingQuantity",r.getRemainingQuantity());m.put("maxRedemptions",r.getMaxRedemptions());m.put("redemptionCount",r.getRedemptionCount());m.put("startDate",r.getStartDate());m.put("expiryDate",r.getExpiryDate());m.put("active",r.isActive());m.put("available",available(r));return m;}
+ private Map<String,Object> rewardView(LoyaltyReward r){
+  long associationStartedAtNanos=DashboardRequestMeasurements.startStage();
+  MenuItem menuItem=r.getMenuItem();
+  Long menuItemId=menuItem==null?null:menuItem.getId();
+  String menuItemName=menuItem==null?null:menuItem.getItemName();
+  DashboardRequestMeasurements.recordStageDuration(
+      Stage.OWNER_REWARD_ASSOCIATION_LOADING,associationStartedAtNanos);
+  Map<String,Object>m=new LinkedHashMap<>();m.put("id",r.getId());m.put("rewardName",r.getRewardName());m.put("description",r.getDescription());m.put("imageUrl",r.getImageUrl());m.put("rewardType",r.getRewardType());m.put("pointsRequired",r.getPointsRequired());m.put("menuItemId",menuItemId);m.put("menuItemName",menuItemName);m.put("discountPercentage",r.getDiscountPercentage());m.put("discountAmount",r.getDiscountAmount());m.put("maximumDiscount",r.getMaximumDiscount());m.put("minimumOrderAmount",r.getMinimumOrderAmount());m.put("totalQuantity",r.getTotalQuantity());m.put("remainingQuantity",r.getRemainingQuantity());m.put("maxRedemptions",r.getMaxRedemptions());m.put("redemptionCount",r.getRedemptionCount());m.put("startDate",r.getStartDate());m.put("expiryDate",r.getExpiryDate());m.put("active",r.isActive());m.put("available",available(r));return m;
+ }
  private Map<String,Object> txView(LoyaltyTransactionSummary t){
   Map<String,Object>m=new LinkedHashMap<>();m.put("id",t.id());m.put("type",t.type());
   long displayedPoints="RESERVATION".equals(t.type())||"REDEEM".equals(t.type())?-t.points():t.points();
@@ -455,9 +604,26 @@ public class LoyaltyService {
  }
  private Map<String,Object> redemptionView(LoyaltyRedemptionSummary r){Map<String,Object>m=new LinkedHashMap<>();m.put("id",r.id());m.put("customerName",r.customerName());m.put("customerMobile",r.customerMobile());m.put("rewardName",r.rewardName()==null?"Point-to-INR redemption":r.rewardName());m.put("pointsUsed",r.pointsUsed());m.put("redemptionCode",r.redemptionCode());m.put("orderId",r.orderId());m.put("status",r.status());m.put("createdAt",r.createdAt());m.put("redeemedAt",r.redeemedAt());return m;}
  private record CustomerHistory(List<LoyaltyTransactionSummary> transactions,boolean hasMore) {}
+ private <T> T measureRepositoryOperation(Stage stage,Supplier<T> operation) {
+  return DashboardRequestMeasurements.measureRepositoryOperation(stage,operation);
+ }
+ private void recordRewardImagePayload(Iterable<LoyaltyReward> rewardEntities) {
+  long imageCount=0,dataUrlCharacters=0,externalUrlCharacters=0;
+  for(LoyaltyReward reward:rewardEntities) {
+   String imageUrl=reward.getImageUrl();
+   if(imageUrl==null||imageUrl.isBlank())continue;
+   imageCount++;
+   if(imageUrl.regionMatches(true,0,"data:image/",0,"data:image/".length()))
+    dataUrlCharacters+=imageUrl.length();
+   else externalUrlCharacters+=imageUrl.length();
+  }
+  DashboardRequestMeasurements.recordRewardImagePayload(
+      imageCount,dataUrlCharacters,externalUrlCharacters);
+ }
  private void audit(Restaurant restaurant,String action,String targetType,Long targetId,String details){
   String actor=SecurityContextHolder.getContext().getAuthentication()==null?"unknown":SecurityContextHolder.getContext().getAuthentication().getName();
-  LoyaltyAuditLog log=new LoyaltyAuditLog();log.setRestaurant(restaurant);log.setActorIdentity(actor==null?"unknown":actor);log.setAction(action);log.setTargetType(targetType);log.setTargetId(targetId);log.setDetails(details);auditLogs.save(log);
+  LoyaltyAuditLog log=new LoyaltyAuditLog();log.setRestaurant(restaurant);log.setActorIdentity(actor==null?"unknown":actor);log.setAction(action);log.setTargetType(targetType);log.setTargetId(targetId);log.setDetails(details);
+  measureRepositoryOperation(Stage.OWNER_AUDIT_LOG_SAVE,()->auditLogs.save(log));
  }
  private int num(Object x,int d){return x instanceof Number n?n.intValue():d;} private BigDecimal decimal(Object x,BigDecimal d){try{return x==null?d:new BigDecimal(x.toString());}catch(Exception e){return d;}}
  private BigDecimal nullableDecimal(Object x){return x==null||x.toString().isBlank()?null:decimal(x,BigDecimal.ZERO);} private Integer nullableInt(Object x){return x==null||x.toString().isBlank()?null:num(x,0);}

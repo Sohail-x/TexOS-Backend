@@ -8,9 +8,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.io.IOException;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -230,6 +237,197 @@ class DashboardPerformanceFilterTest {
     }
 
     @Test
+    void instrumentsRewardManagementReadsAndMutationsWithSanitizedEndpointLabels()
+            throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        DashboardPerformanceFilter filter =
+                new DashboardPerformanceFilter(registry, mock(DataSource.class));
+        List<RouteCase> routes = List.of(
+                new RouteCase("GET", "/api/restaurants/987/loyalty/overview",
+                        "owner_loyalty_overview"),
+                new RouteCase("GET", "/api/restaurants/987/loyalty/settings",
+                        "owner_loyalty_settings"),
+                new RouteCase("PUT", "/api/restaurants/987/loyalty/settings",
+                        "owner_loyalty_settings_update"),
+                new RouteCase("GET", "/api/restaurants/987/loyalty/rewards",
+                        "owner_loyalty_rewards"),
+                new RouteCase("POST", "/api/restaurants/987/loyalty/rewards",
+                        "owner_loyalty_reward_create"),
+                new RouteCase("PUT", "/api/restaurants/987/loyalty/rewards/321",
+                        "owner_loyalty_reward_update"),
+                new RouteCase("PATCH", "/api/restaurants/987/loyalty/rewards/321/status",
+                        "owner_loyalty_reward_status"),
+                new RouteCase("DELETE", "/api/restaurants/987/loyalty/rewards/321",
+                        "owner_loyalty_reward_archive"),
+                new RouteCase("GET", "/api/restaurants/987/loyalty/redemptions",
+                        "owner_loyalty_redemptions"),
+                new RouteCase("GET", "/api/restaurants/987/loyalty/audit-logs",
+                        "owner_loyalty_audit_logs"));
+
+        for (RouteCase route : routes) {
+            long priorRequestCount = registry.find("texos.api.request")
+                    .tag("endpoint_type", route.endpointType())
+                    .tag("status", "200")
+                    .tag("outcome", "completed")
+                    .timer() == null
+                    ? 0
+                    : registry.get("texos.api.request")
+                            .tag("endpoint_type", route.endpointType())
+                            .tag("status", "200")
+                            .tag("outcome", "completed")
+                            .timer().count();
+            double priorResponseBytes = registry.find("texos.api.response.body.bytes")
+                    .tag("endpoint_type", route.endpointType())
+                    .tag("status", "200")
+                    .tag("outcome", "completed")
+                    .summary() == null
+                    ? 0
+                    : registry.get("texos.api.response.body.bytes")
+                            .tag("endpoint_type", route.endpointType())
+                            .tag("status", "200")
+                            .tag("outcome", "completed")
+                            .summary().totalAmount();
+            MockHttpServletRequest request =
+                    new MockHttpServletRequest(route.method(), route.path());
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+                DashboardRequestMeasurements.Measurement measurement =
+                        DashboardRequestMeasurements.current();
+                assertNotNull(measurement);
+                measurement.finishSecurityAtFilter();
+                measurement.startMvcHandler();
+                long controllerStartedAtNanos =
+                        DashboardRequestMeasurements.startControllerTiming();
+                long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
+                DashboardRequestMeasurements.measureRepositoryOperation(
+                        DashboardRequestMeasurements.Measurement.Stage.OWNER_REWARDS_LIST,
+                        () -> "measured");
+                DashboardRequestMeasurements.recordRepositoryResultCount(
+                        DashboardRequestMeasurements.Measurement.Stage.OWNER_REWARDS_LIST, 2);
+                DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
+                DashboardRequestMeasurements.finishControllerTiming(controllerStartedAtNanos);
+                measurement.finishMvcHandler();
+                DashboardRequestMeasurements.recordOwnerResponseCounts(1, 1, 0, 0, 0);
+                DashboardRequestMeasurements.recordRewardImagePayload(1, 64, 12);
+                measurement.startJsonConversionResponseWindow();
+                ((HttpServletResponse) servletResponse).getOutputStream()
+                        .write("{}".getBytes(StandardCharsets.UTF_8));
+            });
+
+            assertEquals(priorRequestCount + 1, registry.get("texos.api.request")
+                    .tag("endpoint_type", route.endpointType())
+                    .tag("status", "200")
+                    .tag("outcome", "completed")
+                    .timer().count());
+            assertEquals(priorResponseBytes + 2, registry.get("texos.api.response.body.bytes")
+                    .tag("endpoint_type", route.endpointType())
+                    .tag("status", "200")
+                    .tag("outcome", "completed")
+                    .summary().totalAmount());
+        }
+
+        assertEquals(1, registry.get("texos.api.response.record.count")
+                .tag("value_type", "records")
+                .tag("endpoint_type", "owner_loyalty_rewards")
+                .tag("status", "200")
+                .tag("outcome", "completed")
+                .summary().count());
+        assertEquals(1, registry.get("texos.api.reward.image.characters")
+                .tag("value_type", "data_url")
+                .tag("endpoint_type", "owner_loyalty_rewards")
+                .tag("status", "200")
+                .tag("outcome", "completed")
+                .summary().count());
+        assertEquals(2, registry.get("texos.api.repository.result.count")
+                .tag("value_type", "owner_rewards_repository_call")
+                .tag("endpoint_type", "owner_loyalty_rewards")
+                .tag("status", "200")
+                .tag("outcome", "completed")
+                .summary().totalAmount());
+        assertTrue(registry.getMeters().stream()
+                .flatMap(meter -> meter.getId().getTags().stream())
+                .noneMatch(tag -> "987".equals(tag.getValue())
+                        || "321".equals(tag.getValue())));
+        assertNull(DashboardRequestMeasurements.current());
+        registry.close();
+    }
+
+    @Test
+    void isolatesConcurrentRewardRequestMeasurements() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        DashboardPerformanceFilter filter =
+                new DashboardPerformanceFilter(registry, mock(DataSource.class));
+        CountDownLatch requestsEntered = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        DashboardSqlInspector sqlInspector = new DashboardSqlInspector();
+
+        try {
+            Future<?> overview = executor.submit(() -> executeConcurrentRequest(
+                    filter,
+                    sqlInspector,
+                    "GET",
+                    "/api/restaurants/987/loyalty/overview",
+                    1,
+                    requestsEntered));
+            Future<?> redemptions = executor.submit(() -> executeConcurrentRequest(
+                    filter,
+                    sqlInspector,
+                    "GET",
+                    "/api/restaurants/654/loyalty/redemptions",
+                    4,
+                    requestsEntered));
+            overview.get(10, TimeUnit.SECONDS);
+            redemptions.get(10, TimeUnit.SECONDS);
+
+            assertEquals(1, registry.get("texos.api.hibernate.query.count")
+                    .tag("endpoint_type", "owner_loyalty_overview")
+                    .tag("status", "200")
+                    .tag("outcome", "completed")
+                    .summary().totalAmount());
+            assertEquals(4, registry.get("texos.api.hibernate.query.count")
+                    .tag("endpoint_type", "owner_loyalty_redemptions")
+                    .tag("status", "200")
+                    .tag("outcome", "completed")
+                    .summary().totalAmount());
+            assertNull(DashboardRequestMeasurements.current());
+        } finally {
+            executor.shutdownNow();
+            registry.close();
+        }
+    }
+
+    @Test
+    void recordsRewardRequestMeasurementsWhenTheHandlerThrows() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        DashboardPerformanceFilter filter =
+                new DashboardPerformanceFilter(registry, mock(DataSource.class));
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET", "/api/restaurants/987/loyalty/rewards");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThrows(IllegalStateException.class, () -> filter.doFilter(
+                request, response, (servletRequest, servletResponse) -> {
+                    DashboardRequestMeasurements.Measurement measurement =
+                            DashboardRequestMeasurements.current();
+                    assertNotNull(measurement);
+                    measurement.startMvcHandler();
+                    DashboardRequestMeasurements.measureRepositoryOperation(
+                            DashboardRequestMeasurements.Measurement.Stage.OWNER_REWARDS_LIST,
+                            () -> {
+                                throw new IllegalStateException("simulated failure");
+                            });
+                }));
+
+        assertEquals(1, registry.get("texos.api.request")
+                .tag("endpoint_type", "owner_loyalty_rewards")
+                .tag("status", "200")
+                .tag("outcome", "unhandled_error")
+                .timer().count());
+        assertNull(DashboardRequestMeasurements.current());
+        registry.close();
+    }
+
+    @Test
     void marksErrorsAndDoesNotRecordAsyncAsCompletedRequests() throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         DashboardPerformanceFilter filter =
@@ -290,4 +488,42 @@ class DashboardPerformanceFilterTest {
         assertEquals("empty", empty.getNotificationKind());
         DashboardRequestMeasurements.clear();
     }
+
+    private static void executeConcurrentRequest(
+            DashboardPerformanceFilter filter,
+            DashboardSqlInspector sqlInspector,
+            String method,
+            String path,
+            int queryCount,
+            CountDownLatch requestsEntered) {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        try {
+            filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+                DashboardRequestMeasurements.Measurement measurement =
+                        DashboardRequestMeasurements.current();
+                assertNotNull(measurement);
+                measurement.finishSecurityAtFilter();
+                measurement.startMvcHandler();
+                for (int i = 0; i < queryCount; i++) {
+                    sqlInspector.inspect("select 1");
+                }
+                requestsEntered.countDown();
+                try {
+                    if (!requestsEntered.await(5, TimeUnit.SECONDS)) {
+                        throw new ServletException(
+                                "Concurrent request did not reach the barrier");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new ServletException(exception);
+                }
+                measurement.finishMvcHandler();
+            });
+        } catch (IOException | ServletException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private record RouteCase(String method, String path, String endpointType) {}
 }
