@@ -32,6 +32,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
     Optional<Restaurant> findByIdAndOwnerId(Long restaurantId, Long ownerId);
 
+    boolean existsByIdAndOwnerId(Long restaurantId, Long ownerId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select restaurant from Restaurant restaurant where restaurant.id = :restaurantId")
     Optional<Restaurant> findByIdForUpdate(@Param("restaurantId") Long restaurantId);

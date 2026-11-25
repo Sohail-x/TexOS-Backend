@@ -27,9 +27,19 @@ public class OwnerOrderController {
 
     @GetMapping
     public ResponseEntity<List<OrderResponse>> getOrders(
-            @PathVariable Long restaurantId
+            @PathVariable Long restaurantId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
-
+        if (page != null || size != null) {
+            return ResponseEntity.ok(
+                    orderService.getOrdersForOwner(
+                            restaurantId,
+                            page == null ? 0 : page,
+                            size == null ? 100 : size
+                    )
+            );
+        }
         return ResponseEntity.ok(
                 orderService.getOrdersForOwner(restaurantId)
         );

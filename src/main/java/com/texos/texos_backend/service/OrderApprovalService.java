@@ -210,22 +210,18 @@ public class OrderApprovalService {
                 .filter(session -> session.getRestaurant().isActive())
                 .filter(session -> session.getRestaurant().isOrderApprovalEnabled())
                 .filter(session -> accessCodeRepository
-                        .findByCodeHashAndSessionIdAndStatus(
+                        .existsByCodeHashAndSessionIdAndStatus(
                                 session.getAccessCodeHash(),
                                 sessionId,
-                                OrderApprovalCodeStatus.USED)
-                        .isPresent())
+                                OrderApprovalCodeStatus.USED))
                 .orElse(null);
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getPendingOrders(Long restaurantId) {
-        return orderRepository
-                .findAllByRestaurant_IdAndApprovalStatusOrderByCreatedAtAsc(
-                        restaurantId, OrderApprovalStatus.PENDING)
-                .stream()
-                .map(orderService::toResponse)
-                .toList();
+        return orderService.toResponses(orderRepository
+                .findAllByRestaurant_IdAndApprovalStatusWithDetailsOrderByCreatedAtAsc(
+                        restaurantId, OrderApprovalStatus.PENDING));
     }
 
     @Transactional

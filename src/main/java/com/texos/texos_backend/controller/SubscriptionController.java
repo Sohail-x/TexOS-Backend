@@ -25,7 +25,9 @@ public class SubscriptionController {
 
     @GetMapping("/plans")
     public ResponseEntity<?> plans() {
-        return ResponseEntity.ok(subscriptionService.getPlans());
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CACHE_CONTROL, "public, max-age=60")
+                .body(subscriptionService.getPlans());
     }
 
     @GetMapping("/status")

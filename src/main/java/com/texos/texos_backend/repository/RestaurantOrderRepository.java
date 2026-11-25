@@ -4,6 +4,7 @@ import com.texos.texos_backend.entity.OrderStatus;
 import com.texos.texos_backend.entity.OrderApprovalStatus;
 import com.texos.texos_backend.entity.PaymentStatus;
 import com.texos.texos_backend.entity.RestaurantOrder;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -91,6 +92,20 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
     List<RestaurantOrder> findAllByRestaurant_IdAndApprovalStatusOrderByCreatedAtAsc(
                 Long restaurantId, OrderApprovalStatus approvalStatus);
 
+    @Query("""
+            select distinct order
+            from RestaurantOrder order
+            left join fetch order.items item
+            left join fetch order.restaurant
+            left join fetch order.table
+            where order.restaurant.id = :restaurantId
+              and order.approvalStatus = :approvalStatus
+            order by order.createdAt asc
+            """)
+    List<RestaurantOrder> findAllByRestaurant_IdAndApprovalStatusWithDetailsOrderByCreatedAtAsc(
+            @Param("restaurantId") Long restaurantId,
+            @Param("approvalStatus") OrderApprovalStatus approvalStatus);
+
         List<RestaurantOrder> findAllByRestaurant_IdAndApprovalStatusNotInOrderByCreatedAtDesc(
                 Long restaurantId, Collection<OrderApprovalStatus> excludedStatuses);
 
@@ -98,7 +113,6 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
                 select distinct order
                 from RestaurantOrder order
                 left join fetch order.items item
-                left join fetch item.menuItem
                 left join fetch order.restaurant
                 left join fetch order.table
                 where order.restaurant.id = :restaurantId
@@ -113,7 +127,6 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
                 select distinct order
                 from RestaurantOrder order
                 left join fetch order.items item
-                left join fetch item.menuItem
                 left join fetch order.restaurant
                 left join fetch order.table
                 where order.restaurant.id = :restaurantId
@@ -151,7 +164,6 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
                 select distinct order
                 from RestaurantOrder order
                 left join fetch order.items item
-                left join fetch item.menuItem
                 left join fetch order.restaurant
                 left join fetch order.table
                 where order.id in :orderIds
@@ -163,7 +175,6 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
                 select distinct order
                 from RestaurantOrder order
                 left join fetch order.items item
-                left join fetch item.menuItem
                 left join fetch order.restaurant
                 left join fetch order.table
                 where order.restaurant.id = :restaurantId
@@ -204,4 +215,73 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
                 @Param("excludedStatus") OrderStatus excludedStatus
         );
 
+
+        @Query("""
+                select order.id
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                order by order.createdAt desc
+                """)
+        List<Long> findOwnerOrderIdsPage(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                Pageable pageable);
+
+        @Query("""
+                select order.orderStatus as status, count(order.id) as orderCount
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                  and (:start is null or order.createdAt >= :start)
+                  and (:end is null or order.createdAt < :end)
+                group by order.orderStatus
+                """)
+        List<Object[]> countOrdersByStatusForAnalytics(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                @Param("start") LocalDateTime start,
+                @Param("end") LocalDateTime end);
+
+        @Query("""
+                select count(order.id),
+                       count(case when order.paymentStatus = :paidStatus then order.id end),
+                       count(case when order.paymentStatus = :pendingStatus then order.id end),
+                       count(case when order.orderStatus = :cancelledStatus then order.id end),
+                       coalesce(sum(case
+                           when order.paymentStatus = :paidStatus
+                            and order.orderStatus <> :cancelledStatus
+                           then order.totalAmount
+                           else null
+                       end), 0)
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                  and (:start is null or order.createdAt >= :start)
+                  and (:end is null or order.createdAt < :end)
+                """)
+        List<Object[]> getAnalyticsTotals(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                @Param("start") LocalDateTime start,
+                @Param("end") LocalDateTime end,
+                @Param("paidStatus") PaymentStatus paidStatus,
+                @Param("pendingStatus") PaymentStatus pendingStatus,
+                @Param("cancelledStatus") OrderStatus cancelledStatus);
+
+        @Query("""
+                select order.id
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                  and (:start is null or order.createdAt >= :start)
+                  and (:end is null or order.createdAt < :end)
+                order by order.createdAt desc
+                """)
+        List<Long> findAnalyticsOrderIdsPage(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                @Param("start") LocalDateTime start,
+                @Param("end") LocalDateTime end,
+                Pageable pageable);
 }

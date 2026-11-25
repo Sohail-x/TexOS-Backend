@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Optional;
 
 import com.texos.texos_backend.entity.Owner;
-import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import com.texos.texos_backend.service.SubscriptionService;
@@ -40,8 +39,8 @@ class RestaurantAccessFilterTest {
         Owner owner = owner(7L);
         when(ownerRepository.findByEmail("owner@example.com"))
                 .thenReturn(Optional.of(owner));
-        when(restaurantRepository.findByIdAndOwnerId(42L, 7L))
-                .thenReturn(Optional.of(new Restaurant()));
+        when(restaurantRepository.existsByIdAndOwnerId(42L, 7L))
+                .thenReturn(true);
         when(subscriptionService.hasValidSubscription(42L)).thenReturn(true);
         authenticate();
 
@@ -88,8 +87,8 @@ class RestaurantAccessFilterTest {
         SubscriptionService subscriptionService = mock(SubscriptionService.class);
         when(ownerRepository.findByEmail("owner@example.com"))
                 .thenReturn(Optional.of(owner(7L)));
-        when(restaurantRepository.findByIdAndOwnerId(84L, 7L))
-                .thenReturn(Optional.empty());
+        when(restaurantRepository.existsByIdAndOwnerId(84L, 7L))
+                .thenReturn(false);
         authenticate();
 
         MockHttpServletRequest request = request(84L);
@@ -110,8 +109,8 @@ class RestaurantAccessFilterTest {
         SubscriptionService subscriptionService = mock(SubscriptionService.class);
         when(ownerRepository.findByEmail("owner@example.com"))
                 .thenReturn(Optional.of(owner(7L)));
-        when(restaurantRepository.findByIdAndOwnerId(42L, 7L))
-                .thenReturn(Optional.of(new Restaurant()));
+        when(restaurantRepository.existsByIdAndOwnerId(42L, 7L))
+                .thenReturn(true);
         when(subscriptionService.hasValidSubscription(42L)).thenReturn(false);
         authenticate();
 

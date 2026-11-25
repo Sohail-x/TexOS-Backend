@@ -13,7 +13,10 @@ import com.texos.texos_backend.observability.DashboardRequestMeasurements.Measur
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
+import com.texos.texos_backend.config.AuthenticatedOwnerPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -45,6 +48,10 @@ public class LoyaltyService {
  private Restaurant ownedRestaurant(Long id) {
   long ownershipStartedAtNanos=DashboardRequestMeasurements.startStage();
   try {
+   if(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs
+       && attrs.getRequest().getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE) instanceof AuthenticatedOwnerPrincipal) {
+    return restaurants.getReferenceById(id);
+   }
    String principal=SecurityContextHolder.getContext().getAuthentication()==null?null:SecurityContextHolder.getContext().getAuthentication().getName();
    Owner owner=measureRepositoryOperation(Stage.SERVICE_OWNER_REPOSITORY,()->owners.findByEmail(principal==null?"":principal.trim().toLowerCase()).or(()->owners.findByPhone(principal)).orElseThrow(()->new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED)));
    return measureRepositoryOperation(Stage.SERVICE_RESTAURANT_REPOSITORY,()->restaurants.findByIdAndOwnerId(id,owner.getId()).orElseThrow(()->new ResourceNotFoundException("Restaurant not found")));

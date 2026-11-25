@@ -118,10 +118,7 @@ public class MenuItemService {
     ) {
 
         MenuItem item = getItemById(restaurantId, categoryId, itemId);
-        orderItemRepository.findAllByMenuItem_Id(itemId).forEach(orderItem -> {
-            orderItem.setMenuItem(null);
-        });
-        orderItemRepository.flush();
+        orderItemRepository.clearMenuItemReferences(itemId);
         itemRepository.delete(item);
     }
 

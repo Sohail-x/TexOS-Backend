@@ -24,6 +24,8 @@ public class CustomerMenuController {
         PublicMenuResponse response =
                 customerMenuService.getCustomerMenu(qrToken);
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CACHE_CONTROL, "private, max-age=15")
+                .body(response);
     }
 }

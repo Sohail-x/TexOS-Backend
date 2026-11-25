@@ -2,6 +2,7 @@ package com.texos.texos_backend.repository;
 
 import com.texos.texos_backend.entity.CustomerPaymentTransaction;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -29,6 +30,7 @@ public interface CustomerPaymentTransactionRepository extends JpaRepository<Cust
     @Query("select payment from CustomerPaymentTransaction payment where payment.id = :id")
     Optional<CustomerPaymentTransaction> findByIdForUpdate(@Param("id") Long id);
 
+    @EntityGraph(attributePaths = "orders")
     List<CustomerPaymentTransaction> findAllByRestaurant_IdAndCustomer_IdOrderByCreatedAtDesc(
             Long restaurantId, Long customerId);
 
@@ -37,6 +39,7 @@ public interface CustomerPaymentTransactionRepository extends JpaRepository<Cust
     Optional<CustomerPaymentTransaction> findFirstByOrders_IdAndRestaurant_IdOrderByCreatedAtDesc(
             Long orderId, Long restaurantId);
 
+    @EntityGraph(attributePaths = "orders")
     List<CustomerPaymentTransaction> findAllByOrders_IdInAndRestaurant_Id(
             Collection<Long> orderIds, Long restaurantId);
 }
