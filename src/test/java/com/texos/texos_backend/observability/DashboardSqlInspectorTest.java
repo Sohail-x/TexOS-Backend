@@ -28,4 +28,14 @@ class DashboardSqlInspectorTest {
         assertEquals(sql, inspector.inspect(sql));
         assertEquals(1, measurement.getQueryCount());
     }
+
+    @Test
+    void countsStatementsForNewlyInstrumentedEndpointContext() {
+        String sql = "select id from owner where id = ?";
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.begin("/api/auth/me");
+
+        assertEquals(sql, inspector.inspect(sql));
+        assertEquals(1, measurement.getQueryCount());
+    }
 }

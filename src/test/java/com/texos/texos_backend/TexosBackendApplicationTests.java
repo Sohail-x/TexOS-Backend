@@ -96,6 +96,21 @@ class TexosBackendApplicationTests {
 	}
 
 	@Test
+	void hibernateInstrumentationCapturesQueriesForAuthEndpointContext() {
+		DashboardRequestMeasurements.Measurement measurement =
+				DashboardRequestMeasurements.begin("/api/auth/me");
+		try {
+			entityManager.createNativeQuery("select 1").getSingleResult();
+		} finally {
+			DashboardRequestMeasurements.clear();
+		}
+
+		assertEquals(1, measurement.getQueryCount());
+		assertTrue(measurement.getQueryExecutionNanos() > 0);
+		assertTrue(measurement.getConnectionAcquisitionNanos() > 0);
+	}
+
+	@Test
 	void authenticationRequestsAreRateLimitedAcrossTheSharedDatabase() throws Exception {
 		assertTrue(filterChainProxy.getFilters("/api/auth/login").stream()
 				.anyMatch(com.texos.texos_backend.config.AuthRateLimitFilter.class::isInstance));

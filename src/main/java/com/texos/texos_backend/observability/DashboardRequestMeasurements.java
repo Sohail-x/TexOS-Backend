@@ -40,11 +40,24 @@ public final class DashboardRequestMeasurements {
         return current() == null ? 0 : System.nanoTime();
     }
 
+    public static long startControllerTiming() {
+        Measurement measurement = current();
+        return measurement == null ? 0 : measurement.startControllerMethod();
+    }
+
+    public static void finishControllerTiming(long startedAtNanos) {
+        Measurement measurement = current();
+        if (measurement != null && startedAtNanos != 0) {
+            measurement.finishControllerMethod(startedAtNanos);
+        }
+    }
+
     public static final class Measurement {
         private final String route;
         private final long startedAtNanos;
         private long securityNanos;
         private boolean securityMeasured;
+        private boolean securityFilterReached;
         private long controllerMethodNanos;
         private long mvcHandlerStartedAtNanos;
         private long mvcHandlerNanos;
@@ -54,10 +67,15 @@ public final class DashboardRequestMeasurements {
         private long queryCount;
         private int responseOrderCount = -1;
         private long serializationStartedAtNanos;
+        private boolean handlerInvoked;
+        private boolean handlerFailed;
+        private String notificationKind;
 
         private Measurement(String route, long startedAtNanos) {
             this.route = route;
             this.startedAtNanos = startedAtNanos;
+            this.notificationKind = "/api/restaurants/{restaurantId}/payments/notifications/next"
+                    .equals(route) ? "not_observed" : "not_applicable";
         }
 
         public String getRoute() {
@@ -79,6 +97,18 @@ public final class DashboardRequestMeasurements {
             }
         }
 
+        public void finishSecurityAtFilter() {
+            if (!securityMeasured) {
+                securityNanos = System.nanoTime() - startedAtNanos;
+                securityMeasured = true;
+                securityFilterReached = true;
+            }
+        }
+
+        public boolean wasSecurityFilterReached() {
+            return securityFilterReached;
+        }
+
         public long startControllerMethod() {
             return System.nanoTime();
         }
@@ -89,11 +119,8 @@ public final class DashboardRequestMeasurements {
             }
         }
 
-        public long getControllerMethodNanos() {
-            return controllerMethodNanos;
-        }
-
         public void startMvcHandler() {
+            handlerInvoked = true;
             mvcHandlerStartedAtNanos = System.nanoTime();
         }
 
@@ -101,6 +128,41 @@ public final class DashboardRequestMeasurements {
             if (mvcHandlerStartedAtNanos != 0) {
                 mvcHandlerNanos = System.nanoTime() - mvcHandlerStartedAtNanos;
             }
+        }
+
+        public void recordHandlerFailure() {
+            handlerFailed = true;
+        }
+
+        public boolean wasHandlerInvoked() {
+            return handlerInvoked;
+        }
+
+        public boolean didHandlerFail() {
+            return handlerFailed;
+        }
+
+        public void recordNotificationType(Object notificationType) {
+            if (!"/api/restaurants/{restaurantId}/payments/notifications/next".equals(route)) {
+                return;
+            }
+            if (notificationType == null) {
+                notificationKind = "empty";
+            } else if ("PAYMENT_SUCCESS".equals(notificationType)) {
+                notificationKind = "payment_notification";
+            } else if ("CALL_WAITER".equals(notificationType)) {
+                notificationKind = "waiter_notification";
+            } else {
+                notificationKind = "other_notification";
+            }
+        }
+
+        public String getNotificationKind() {
+            return notificationKind;
+        }
+
+        public long getControllerMethodNanos() {
+            return controllerMethodNanos;
         }
 
         public long getMvcHandlerNanos() {

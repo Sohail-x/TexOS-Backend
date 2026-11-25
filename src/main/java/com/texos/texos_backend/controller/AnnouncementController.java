@@ -3,6 +3,7 @@ package com.texos.texos_backend.controller;
 import com.texos.texos_backend.dto.AnnouncementRequest;
 import com.texos.texos_backend.entity.TexosAnnouncement;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.TexosAnnouncementRepository;
 import com.texos.texos_backend.service.RestaurantLiveUpdateEvent;
 import jakarta.validation.Valid;
@@ -37,7 +38,12 @@ public class AnnouncementController {
 
     @GetMapping("/api/announcements/active")
     public List<TexosAnnouncement> activeAnnouncements() {
-        return announcements.findCurrentAnnouncements(LocalDateTime.now());
+        long controllerStartedAtNanos = DashboardRequestMeasurements.startControllerTiming();
+        try {
+            return announcements.findCurrentAnnouncements(LocalDateTime.now());
+        } finally {
+            DashboardRequestMeasurements.finishControllerTiming(controllerStartedAtNanos);
+        }
     }
 
     @GetMapping("/api/admin/announcements")

@@ -22,7 +22,7 @@ public class DashboardSecurityTimingFilter extends OncePerRequestFilter {
         DashboardRequestMeasurements.Measurement measurement =
                 DashboardPerformanceFilter.currentMeasurement(request);
         if (measurement != null) {
-            measurement.finishSecurityIfNeeded();
+            measurement.finishSecurityAtFilter();
         }
         filterChain.doFilter(request, response);
     }

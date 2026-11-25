@@ -2,6 +2,7 @@ package com.texos.texos_backend.controller;
 
 import com.texos.texos_backend.dto.OfflineCollectionRequest;
 import com.texos.texos_backend.entity.Owner;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.service.RestaurantPaymentService;
 import jakarta.validation.Valid;
@@ -38,8 +39,19 @@ public class RestaurantPaymentController {
     @GetMapping("/notifications/next")
     public Map<String, Object> nextNotification(
             @PathVariable Long restaurantId, Authentication authentication) {
-        return paymentService.getNextOwnerNotification(
-                restaurantId, requireOwner(authentication).getId());
+        long controllerStartedAtNanos = DashboardRequestMeasurements.startControllerTiming();
+        try {
+            Map<String, Object> notification = paymentService.getNextOwnerNotification(
+                    restaurantId, requireOwner(authentication).getId());
+            DashboardRequestMeasurements.Measurement measurement =
+                    DashboardRequestMeasurements.current();
+            if (measurement != null) {
+                measurement.recordNotificationType(notification.get("type"));
+            }
+            return notification;
+        } finally {
+            DashboardRequestMeasurements.finishControllerTiming(controllerStartedAtNanos);
+        }
     }
 
     @PostMapping("/notifications/{notificationId}/dismiss")

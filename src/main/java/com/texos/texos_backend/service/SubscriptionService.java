@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.texos.texos_backend.entity.*;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.exception.ResourceConflictException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,21 +57,26 @@ public class SubscriptionService {
     }
 
     public Map<String, Object> getStatus(Long restaurantId, Long ownerId) {
-        requireRestaurant(restaurantId, ownerId);
-        Subscription subscription = subscriptionRepository
-                .findFirstByRestaurantIdOrderByCreatedAtDesc(restaurantId).orElse(null);
-        LocalDateTime now = utcNow();
-        String status = subscription == null ? "NONE" : subscription.getStatus().name();
-        boolean entitled = subscription != null && ENTITLED.contains(subscription.getStatus())
-                && subscription.getEndDate() != null && subscription.getEndDate().isAfter(now);
-        if (subscription != null && ENTITLED.contains(subscription.getStatus()) && !entitled) {
-            status = "EXPIRED";
+        long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
+        try {
+            requireRestaurant(restaurantId, ownerId);
+            Subscription subscription = subscriptionRepository
+                    .findFirstByRestaurantIdOrderByCreatedAtDesc(restaurantId).orElse(null);
+            LocalDateTime now = utcNow();
+            String status = subscription == null ? "NONE" : subscription.getStatus().name();
+            boolean entitled = subscription != null && ENTITLED.contains(subscription.getStatus())
+                    && subscription.getEndDate() != null && subscription.getEndDate().isAfter(now);
+            if (subscription != null && ENTITLED.contains(subscription.getStatus()) && !entitled) {
+                status = "EXPIRED";
+            }
+            return Map.of(
+                    "restaurantId", restaurantId,
+                    "status", status,
+                    "entitled", entitled,
+                    "subscription", subscription == null ? Map.of() : subscriptionView(subscription));
+        } finally {
+            DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
         }
-        return Map.of(
-                "restaurantId", restaurantId,
-                "status", status,
-                "entitled", entitled,
-                "subscription", subscription == null ? Map.of() : subscriptionView(subscription));
     }
 
     @Transactional

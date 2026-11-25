@@ -20,6 +20,7 @@ import com.texos.texos_backend.dto.ResetPasswordRequest;
 import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.exception.DuplicateResourceException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import com.texos.texos_backend.service.JwtService;
@@ -130,26 +131,31 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<?> me(Authentication authentication) {
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "Not authenticated"));
-        }
+        long controllerStartedAtNanos = DashboardRequestMeasurements.startControllerTiming();
+        try {
+            if (authentication == null || !authentication.isAuthenticated()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("message", "Not authenticated"));
+            }
 
-        Owner owner = findAuthenticatedOwner(authentication);
-        if (owner == null || !owner.isActive()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "Owner not found or inactive"));
-        }
+            Owner owner = findAuthenticatedOwner(authentication);
+            if (owner == null || !owner.isActive()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("message", "Owner not found or inactive"));
+            }
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("ownerId", owner.getId());
-        result.put("fullName", owner.getFullName());
-        result.put("email", owner.getEmail());
-        result.put("phone", owner.getPhone());
-        result.put("avatarIcon", owner.getAvatarIcon());
-        result.put("avatarImage", owner.getAvatarImage());
-        result.put("restaurants", getOwnerRestaurants(owner.getId()));
-        return ResponseEntity.ok(result);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("ownerId", owner.getId());
+            result.put("fullName", owner.getFullName());
+            result.put("email", owner.getEmail());
+            result.put("phone", owner.getPhone());
+            result.put("avatarIcon", owner.getAvatarIcon());
+            result.put("avatarImage", owner.getAvatarImage());
+            result.put("restaurants", getOwnerRestaurants(owner.getId()));
+            return ResponseEntity.ok(result);
+        } finally {
+            DashboardRequestMeasurements.finishControllerTiming(controllerStartedAtNanos);
+        }
     }
 
     @PutMapping("/profile")

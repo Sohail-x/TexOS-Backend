@@ -1,6 +1,10 @@
 package com.texos.texos_backend.observability;
 
 import com.texos.texos_backend.controller.DashboardController;
+import com.texos.texos_backend.controller.AnnouncementController;
+import com.texos.texos_backend.controller.AuthController;
+import com.texos.texos_backend.controller.RestaurantPaymentController;
+import com.texos.texos_backend.controller.SubscriptionController;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
@@ -12,7 +16,13 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
-@ControllerAdvice(assignableTypes = DashboardController.class)
+@ControllerAdvice(assignableTypes = {
+        DashboardController.class,
+        RestaurantPaymentController.class,
+        AnnouncementController.class,
+        AuthController.class,
+        SubscriptionController.class
+})
 public class DashboardResponseTimingAdvice implements ResponseBodyAdvice<Object> {
 
     @Override

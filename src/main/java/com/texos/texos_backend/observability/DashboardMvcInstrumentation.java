@@ -16,7 +16,11 @@ public class DashboardMvcInstrumentation implements WebMvcConfigurer {
         registry.addInterceptor(new DashboardHandlerTimingInterceptor())
                 .addPathPatterns("/api/restaurants/*/dashboard/summary",
                         "/api/restaurants/*/dashboard/recent-orders",
-                        "/api/restaurants/*/dashboard/active-orders");
+                        "/api/restaurants/*/dashboard/active-orders",
+                        "/api/restaurants/*/payments/notifications/next",
+                        "/api/announcements/active",
+                        "/api/auth/me",
+                        "/api/subscriptions/status");
     }
 
     private static class DashboardHandlerTimingInterceptor implements HandlerInterceptor {
@@ -42,6 +46,9 @@ public class DashboardMvcInstrumentation implements WebMvcConfigurer {
             DashboardRequestMeasurements.Measurement measurement =
                     DashboardPerformanceFilter.currentMeasurement(request);
             if (measurement != null) {
+                if (exception != null) {
+                    measurement.recordHandlerFailure();
+                }
                 measurement.finishMvcHandler();
             }
         }

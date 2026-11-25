@@ -9,6 +9,7 @@ import com.texos.texos_backend.entity.*;
 import com.texos.texos_backend.exception.InvalidRequestException;
 import com.texos.texos_backend.exception.ResourceConflictException;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.*;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -385,13 +386,18 @@ public class RestaurantPaymentService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getNextOwnerNotification(Long restaurantId, Long ownerId) {
-        restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
-        return notificationRepository
-                .findFirstByRestaurant_IdAndNotificationStatusOrderByPriorityAscCreatedAtAsc(
-                        restaurantId, "PENDING")
-                .map(this::notificationView)
-                .orElseGet(Map::of);
+        long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
+        try {
+            restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+            return notificationRepository
+                    .findFirstByRestaurant_IdAndNotificationStatusOrderByPriorityAscCreatedAtAsc(
+                            restaurantId, "PENDING")
+                    .map(this::notificationView)
+                    .orElseGet(Map::of);
+        } finally {
+            DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
+        }
     }
 
     @Transactional(readOnly = true)
