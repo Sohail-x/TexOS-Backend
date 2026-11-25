@@ -24,7 +24,7 @@ public interface OwnerRepository extends JpaRepository<Owner, Long> {
                    o.active as active,
                    o.tokenVersion as tokenVersion
             from Owner o
-            where lower(o.email) = lower(:identity) or o.phone = :identity
+            where o.email = :identity or o.phone = :identity
             """)
     Optional<OwnerAuthView> findAuthViewByIdentity(@Param("identity") String identity);
 

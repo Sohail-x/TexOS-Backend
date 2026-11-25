@@ -75,7 +75,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 long ownerLookupStartedAtNanos = DashboardRequestMeasurements.startStage();
                 OwnerAuthView owner;
                 try {
-                    owner = ownerRepository.findAuthViewByIdentity(email.trim()).orElse(null);
+                    owner = ownerRepository.findAuthViewByIdentity(email.trim().toLowerCase()).orElse(null);
                 } finally {
                     DashboardRequestMeasurements.recordStageDuration(
                             Stage.JWT_OWNER_LOOKUP, ownerLookupStartedAtNanos);
