@@ -94,6 +94,38 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
         List<RestaurantOrder> findAllByRestaurant_IdAndApprovalStatusNotInOrderByCreatedAtDesc(
                 Long restaurantId, Collection<OrderApprovalStatus> excludedStatuses);
 
+        @Query("""
+                select distinct order
+                from RestaurantOrder order
+                left join fetch order.items item
+                left join fetch item.menuItem
+                left join fetch order.restaurant
+                left join fetch order.table
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                order by order.createdAt desc
+                """)
+        List<RestaurantOrder> findAllOwnerOrdersWithDetails(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses);
+
+        @Query("""
+                select distinct order
+                from RestaurantOrder order
+                left join fetch order.items item
+                left join fetch item.menuItem
+                left join fetch order.restaurant
+                left join fetch order.table
+                where order.restaurant.id = :restaurantId
+                  and order.orderStatus in :statuses
+                  and order.approvalStatus not in :excludedStatuses
+                order by order.createdAt desc
+                """)
+        List<RestaurantOrder> findKitchenOrdersWithDetails(
+                @Param("restaurantId") Long restaurantId,
+                @Param("statuses") Collection<OrderStatus> statuses,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses);
+
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @Query("select o from RestaurantOrder o where o.id = :orderId and o.restaurant.id = :restaurantId")
         Optional<RestaurantOrder> findByIdAndRestaurantIdForApproval(
@@ -118,7 +150,8 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
         @Query("""
                 select distinct order
                 from RestaurantOrder order
-                left join fetch order.items
+                left join fetch order.items item
+                left join fetch item.menuItem
                 left join fetch order.restaurant
                 left join fetch order.table
                 where order.id in :orderIds
@@ -129,7 +162,8 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
         @Query("""
                 select distinct order
                 from RestaurantOrder order
-                left join fetch order.items
+                left join fetch order.items item
+                left join fetch item.menuItem
                 left join fetch order.restaurant
                 left join fetch order.table
                 where order.restaurant.id = :restaurantId

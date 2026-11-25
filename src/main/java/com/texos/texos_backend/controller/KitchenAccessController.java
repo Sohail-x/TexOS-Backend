@@ -3,6 +3,7 @@ package com.texos.texos_backend.controller;
 import com.texos.texos_backend.dto.KitchenAccessCodeRequest;
 import com.texos.texos_backend.dto.KitchenStaffSessionResponse;
 import com.texos.texos_backend.dto.KitchenAccessStatusResponse;
+import com.texos.texos_backend.dto.OrderResponse;
 import com.texos.texos_backend.service.KitchenAccessService;
 import com.texos.texos_backend.service.KitchenStaffPrincipal;
 import com.texos.texos_backend.service.OrderService;
@@ -82,9 +83,14 @@ public class KitchenAccessController {
     }
 
     @GetMapping("/api/kitchen-staff/orders")
-    public List<?> getKitchenOrders(Authentication authentication) {
+    public List<OrderResponse> getKitchenOrders(Authentication authentication) {
         KitchenStaffPrincipal principal = (KitchenStaffPrincipal) authentication.getPrincipal();
-        return orderService.getOrdersForOwner(principal.restaurantId());
+        return orderService.getKitchenOrdersForOwner(principal.restaurantId());
+    }
+
+    @GetMapping("/api/restaurants/{restaurantId}/kitchen/orders")
+    public List<OrderResponse> getOwnerKitchenOrders(@PathVariable Long restaurantId) {
+        return orderService.getKitchenOrdersForOwner(restaurantId);
     }
 
     @PatchMapping("/api/kitchen-staff/orders/{orderId}/status")

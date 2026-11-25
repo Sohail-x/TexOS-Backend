@@ -301,9 +301,48 @@ order.setPaymentStatus(PaymentStatus.PENDING);
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersForOwner(Long restaurantId) {
-        return orderRepository.findAllByRestaurant_IdAndApprovalStatusNotInOrderByCreatedAtDesc(
-                        restaurantId, List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED))
-                .stream().map(this::mapToResponse).toList();
+        List<RestaurantOrder> orders = orderRepository.findAllOwnerOrdersWithDetails(
+                restaurantId,
+                List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED));
+        return mapOwnerOrdersWithBills(orders);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getKitchenOrdersForOwner(Long restaurantId) {
+        List<RestaurantOrder> orders = orderRepository.findKitchenOrdersWithDetails(
+                restaurantId,
+                List.of(OrderStatus.NEW, OrderStatus.ACCEPTED,
+                        OrderStatus.PREPARING, OrderStatus.READY),
+                List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED));
+        return orders.stream()
+                .map(order -> mapToResponse(order, null))
+                .toList();
+    }
+
+    private List<OrderResponse> mapOwnerOrdersWithBills(List<RestaurantOrder> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> orderIds = orders.stream()
+                .map(RestaurantOrder::getId)
+                .toList();
+        Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
+        for (Bill bill : billRepository.findAllWithOrderByOrder_IdIn(orderIds)) {
+            billResponsesByOrderId.put(
+                    bill.getOrder().getId(),
+                    billService.mapToResponse(bill));
+        }
+
+        List<OrderResponse> responses = new ArrayList<>(orders.size());
+        for (RestaurantOrder order : orders) {
+            BillResponse billResponse = billResponsesByOrderId.get(order.getId());
+            if (billResponse == null) {
+                throw new ResourceNotFoundException("Bill not found");
+            }
+            responses.add(mapToResponse(order, billResponse));
+        }
+        return responses;
     }
 
     @Transactional(readOnly = true)

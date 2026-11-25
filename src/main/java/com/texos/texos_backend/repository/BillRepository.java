@@ -2,6 +2,8 @@ package com.texos.texos_backend.repository;
 
 import com.texos.texos_backend.entity.Bill;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -12,6 +14,9 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
     Optional<Bill> findByOrderOrderNumber(String orderNumber);
 
     List<Bill> findAllByOrder_IdIn(Collection<Long> orderIds);
+
+    @Query("select bill from Bill bill join fetch bill.order where bill.order.id in :orderIds")
+    List<Bill> findAllWithOrderByOrder_IdIn(@Param("orderIds") Collection<Long> orderIds);
 
     Optional<Bill> findByOrderIdAndOrderRestaurantId(
             Long orderId,
