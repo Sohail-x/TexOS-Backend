@@ -64,9 +64,12 @@ class JwtAuthenticationFilterTest {
                 authentication.getAuthorities().stream()
                         .map(authority -> authority.getAuthority()).toList());
         assertInstanceOf(String.class, authentication.getPrincipal());
-        assertEquals(owner.getId(), assertInstanceOf(
+        AuthenticatedOwnerPrincipal principal = assertInstanceOf(
                 AuthenticatedOwnerPrincipal.class,
-                request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE)).ownerId());
+                request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE));
+        assertEquals(owner.getId(), principal.ownerId());
+        assertEquals(owner.getEmail(), principal.ownerSnapshot().email());
+        assertEquals(owner.isActive(), principal.ownerSnapshot().active());
 
         MockHttpServletResponse accessResponse = new MockHttpServletResponse();
         new RestaurantAccessFilter(ownerRepository, restaurantRepository, subscriptionService)

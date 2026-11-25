@@ -17,6 +17,7 @@ import com.texos.texos_backend.dto.GoogleTokenRequest;
 import com.texos.texos_backend.dto.GoogleOnboardingRequest;
 import com.texos.texos_backend.dto.ForgotPasswordRequest;
 import com.texos.texos_backend.dto.ResetPasswordRequest;
+import com.texos.texos_backend.config.AuthenticatedOwnerPrincipal;
 import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.exception.DuplicateResourceException;
@@ -28,6 +29,7 @@ import com.texos.texos_backend.service.GoogleIdentityService;
 import com.texos.texos_backend.service.RestaurantService;
 import com.texos.texos_backend.service.PasswordResetService;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -130,7 +132,8 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> me(Authentication authentication) {
+    public ResponseEntity<?> me(
+            Authentication authentication, HttpServletRequest request) {
         long controllerStartedAtNanos = DashboardRequestMeasurements.startControllerTiming();
         try {
             if (authentication == null || !authentication.isAuthenticated()) {
@@ -138,20 +141,41 @@ public class AuthController {
                         .body(Map.of("message", "Not authenticated"));
             }
 
-            Owner owner = findAuthenticatedOwner(authentication);
-            if (owner == null || !owner.isActive()) {
+            Long ownerId;
+            AuthenticatedOwnerPrincipal.OwnerSnapshot owner;
+            Object principalValue =
+                    request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE);
+            if (principalValue instanceof AuthenticatedOwnerPrincipal principal
+                    && principal.ownerSnapshot() != null) {
+                ownerId = principal.ownerId();
+                owner = principal.ownerSnapshot();
+            } else {
+                Owner authenticatedOwner = findAuthenticatedOwner(authentication);
+                if (authenticatedOwner == null) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(Map.of("message", "Owner not found or inactive"));
+                }
+                ownerId = authenticatedOwner.getId();
+                owner = new AuthenticatedOwnerPrincipal.OwnerSnapshot(
+                        authenticatedOwner.getFullName(),
+                        authenticatedOwner.getEmail(),
+                        authenticatedOwner.getPhone(),
+                        authenticatedOwner.getAvatarIcon(),
+                        authenticatedOwner.getAvatarImage(),
+                        authenticatedOwner.isActive());
+            }
+            if (!owner.active()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(Map.of("message", "Owner not found or inactive"));
             }
-
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("ownerId", owner.getId());
-            result.put("fullName", owner.getFullName());
-            result.put("email", owner.getEmail());
-            result.put("phone", owner.getPhone());
-            result.put("avatarIcon", owner.getAvatarIcon());
-            result.put("avatarImage", owner.getAvatarImage());
-            result.put("restaurants", getOwnerRestaurants(owner.getId()));
+            result.put("ownerId", ownerId);
+            result.put("fullName", owner.fullName());
+            result.put("email", owner.email());
+            result.put("phone", owner.phone());
+            result.put("avatarIcon", owner.avatarIcon());
+            result.put("avatarImage", owner.avatarImage());
+            result.put("restaurants", getOwnerRestaurants(ownerId));
             return ResponseEntity.ok(result);
         } finally {
             DashboardRequestMeasurements.finishControllerTiming(controllerStartedAtNanos);
@@ -230,9 +254,9 @@ public class AuthController {
         result.put("email", owner.getEmail());
         result.put("phone", owner.getPhone());
         result.put("avatarImage", owner.getAvatarImage());
-        result.put("restaurants", getOwnerRestaurants(owner.getId()));
-        result.put("onboardingRequired", restaurantRepository
-                .findAllByOwnerIdAndActiveTrue(owner.getId()).isEmpty());
+        List<Map<String, Object>> restaurants = getOwnerRestaurants(owner.getId());
+        result.put("restaurants", restaurants);
+        result.put("onboardingRequired", restaurants.isEmpty());
         return result;
     }
 }

@@ -104,7 +104,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         .setAuthentication(authentication);
                     request.setAttribute(
                             AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE,
-                            new AuthenticatedOwnerPrincipal(owner.getId()));
+                            AuthenticatedOwnerPrincipal.from(owner));
                 }
             }
 
