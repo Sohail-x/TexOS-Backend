@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -52,6 +54,31 @@ class RestaurantAccessFilterTest {
 
         assertEquals(200, response.getStatus());
         assertNotNull(chain.getRequest());
+    }
+
+    @Test
+    void reusesVerifiedOwnerForOwnerRestaurantListRoute() throws Exception {
+        OwnerRepository ownerRepository = mock(OwnerRepository.class);
+        RestaurantRepository restaurantRepository = mock(RestaurantRepository.class);
+        SubscriptionService subscriptionService = mock(SubscriptionService.class);
+        when(subscriptionService.hasAnyValidSubscriptionForOwner(7L)).thenReturn(true);
+        authenticate();
+
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET", "/api/restaurants/owner/7/orders");
+        request.setAttribute(
+                AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE,
+                new AuthenticatedOwnerPrincipal(7L));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        new RestaurantAccessFilter(ownerRepository, restaurantRepository, subscriptionService)
+                .doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertNotNull(chain.getRequest());
+        verifyNoInteractions(ownerRepository, restaurantRepository);
+        verify(subscriptionService).hasAnyValidSubscriptionForOwner(7L);
     }
 
     @Test

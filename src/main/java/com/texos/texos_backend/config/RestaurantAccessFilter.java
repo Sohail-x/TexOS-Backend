@@ -53,13 +53,27 @@ public class RestaurantAccessFilter extends OncePerRequestFilter {
                     writeError(response, HttpStatus.UNAUTHORIZED, "Authentication required");
                     return;
                 }
-                Owner owner = ownerRepository.findByEmail(authentication.getName())
-                        .or(() -> ownerRepository.findByPhone(authentication.getName())).orElse(null);
                 String[] parts = remainder.split("/", 3);
-                if (owner == null || parts.length < 2 || !parts[1].matches("\\d+")) {
+                if (parts.length < 2 || !parts[1].matches("\\d+")) {
                     writeError(response, HttpStatus.FORBIDDEN,
                             "You do not have access to this owner's restaurants");
                     return;
+                }
+                Object ownerPrincipalValue =
+                        request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE);
+                Long authenticatedOwnerId;
+                if (ownerPrincipalValue instanceof AuthenticatedOwnerPrincipal ownerPrincipal) {
+                    authenticatedOwnerId = ownerPrincipal.ownerId();
+                } else {
+                    Owner owner = ownerRepository.findByEmail(authentication.getName())
+                            .or(() -> ownerRepository.findByPhone(authentication.getName()))
+                            .orElse(null);
+                    if (owner == null) {
+                        writeError(response, HttpStatus.FORBIDDEN,
+                                "You do not have access to this owner's restaurants");
+                        return;
+                    }
+                    authenticatedOwnerId = owner.getId();
                 }
                 long requestedOwnerId;
                 try {
@@ -68,12 +82,12 @@ public class RestaurantAccessFilter extends OncePerRequestFilter {
                     writeError(response, HttpStatus.BAD_REQUEST, "Invalid owner ID");
                     return;
                 }
-                if (!owner.getId().equals(requestedOwnerId)) {
+                if (!authenticatedOwnerId.equals(requestedOwnerId)) {
                     writeError(response, HttpStatus.FORBIDDEN,
                             "You do not have access to this owner's restaurants");
                     return;
                 }
-                if (!subscriptionService.hasAnyValidSubscriptionForOwner(owner.getId())) {
+                if (!subscriptionService.hasAnyValidSubscriptionForOwner(authenticatedOwnerId)) {
                     writeError(response, HttpStatus.FORBIDDEN,
                             "An active or trialing subscription is required to access this resource");
                     return;

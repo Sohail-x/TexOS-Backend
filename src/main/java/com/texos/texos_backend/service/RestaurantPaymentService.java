@@ -335,7 +335,8 @@ public class RestaurantPaymentService {
         notification.setNotificationStatus("PENDING");
         notificationRepository.save(notification);
         eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
-                table.getRestaurant().getId(), "PAYMENT_NOTIFICATIONS_CHANGED"));
+                table.getRestaurant().getId(),
+                RestaurantLiveUpdateEvent.WAITER_REQUEST_CHANGED));
         return assistanceView(assistance);
     }
 
@@ -370,7 +371,8 @@ public class RestaurantPaymentService {
         notification.setNotificationStatus("PENDING");
         notificationRepository.save(notification);
         eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
-                assistance.getRestaurant().getId(), "PAYMENT_NOTIFICATIONS_CHANGED"));
+                assistance.getRestaurant().getId(),
+                RestaurantLiveUpdateEvent.WAITER_REQUEST_CHANGED));
         return assistanceView(assistance);
     }
 
@@ -430,7 +432,7 @@ public class RestaurantPaymentService {
         notification.setClosedAt(LocalDateTime.now(ZoneOffset.UTC));
         notificationRepository.save(notification);
         eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
-                restaurantId, "PAYMENT_NOTIFICATIONS_CHANGED"));
+                restaurantId, RestaurantLiveUpdateEvent.WAITER_REQUEST_CHANGED));
     }
 
     @Transactional
@@ -462,7 +464,7 @@ public class RestaurantPaymentService {
         notification.setClosedAt(assignedAt);
         notificationRepository.save(notification);
         eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
-                restaurantId, "PAYMENT_NOTIFICATIONS_CHANGED"));
+                restaurantId, RestaurantLiveUpdateEvent.WAITER_REQUEST_CHANGED));
         Map<String, Object> result = assistanceView(assistance);
         result.put("message", "A waiter will be with you shortly. Please wait.");
         return result;
@@ -743,7 +745,8 @@ public class RestaurantPaymentService {
         notification.setNotificationStatus("PENDING");
         notificationRepository.save(notification);
         eventPublisher.publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
-                transaction.getRestaurant().getId(), "PAYMENT_NOTIFICATIONS_CHANGED"));
+                transaction.getRestaurant().getId(),
+                RestaurantLiveUpdateEvent.PAYMENT_NOTIFICATIONS_CHANGED));
     }
 
     private List<RestaurantOrder> lockAndValidateBillOrders(

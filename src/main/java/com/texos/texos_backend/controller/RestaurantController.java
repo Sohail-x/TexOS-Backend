@@ -1,11 +1,13 @@
 package com.texos.texos_backend.controller;
 
 import com.texos.texos_backend.dto.RestaurantRegistrationRequest;
+import com.texos.texos_backend.config.AuthenticatedOwnerPrincipal;
 import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.service.RestaurantService;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -30,10 +32,11 @@ public class RestaurantController {
     public ResponseEntity<?> createRestaurant(
             @PathVariable Long ownerId,
             @Valid @RequestBody RestaurantRegistrationRequest request,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest servletRequest) {
 
-        Owner authenticatedOwner = getAuthenticatedOwner(authentication);
-        if (authenticatedOwner == null || !authenticatedOwner.getId().equals(ownerId)) {
+        Long authenticatedOwnerId = getAuthenticatedOwnerId(authentication, servletRequest);
+        if (authenticatedOwnerId == null || !authenticatedOwnerId.equals(ownerId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "You cannot create a restaurant for another owner"));
         }
@@ -52,10 +55,11 @@ public class RestaurantController {
     @GetMapping("/owner/{ownerId}")
     public ResponseEntity<?> getRestaurantsByOwner(
             @PathVariable Long ownerId,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
 
-        Owner authenticatedOwner = getAuthenticatedOwner(authentication);
-        if (authenticatedOwner == null || !authenticatedOwner.getId().equals(ownerId)) {
+        Long authenticatedOwnerId = getAuthenticatedOwnerId(authentication, request);
+        if (authenticatedOwnerId == null || !authenticatedOwnerId.equals(ownerId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "You cannot access another owner's restaurants"));
         }
@@ -73,10 +77,11 @@ public class RestaurantController {
     public ResponseEntity<?> getRestaurantById(
             @PathVariable Long restaurantId,
             @PathVariable Long ownerId,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest request) {
 
-        Owner authenticatedOwner = getAuthenticatedOwner(authentication);
-        if (authenticatedOwner == null || !authenticatedOwner.getId().equals(ownerId)) {
+        Long authenticatedOwnerId = getAuthenticatedOwnerId(authentication, request);
+        if (authenticatedOwnerId == null || !authenticatedOwnerId.equals(ownerId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "You cannot access another owner's restaurant"));
         }
@@ -89,36 +94,47 @@ public class RestaurantController {
     public ResponseEntity<?> updateRestaurant(
             @PathVariable Long restaurantId,
             @Valid @RequestBody RestaurantRegistrationRequest request,
-            Authentication authentication) {
-        Owner authenticatedOwner = getAuthenticatedOwner(authentication);
-        if (authenticatedOwner == null) {
+            Authentication authentication,
+            HttpServletRequest servletRequest) {
+        Long authenticatedOwnerId =
+                getAuthenticatedOwnerId(authentication, servletRequest);
+        if (authenticatedOwnerId == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "You cannot update this restaurant"));
         }
 
         Restaurant restaurant = restaurantService.updateRestaurant(
-                restaurantId, authenticatedOwner.getId(), request);
+                restaurantId, authenticatedOwnerId, request);
         return ResponseEntity.ok(toResponse(restaurant));
     }
 
     @DeleteMapping("/{restaurantId}")
     public ResponseEntity<?> removeRestaurant(
             @PathVariable Long restaurantId,
-            Authentication authentication) {
-        Owner authenticatedOwner = getAuthenticatedOwner(authentication);
-        if (authenticatedOwner == null) {
+            Authentication authentication,
+            HttpServletRequest request) {
+        Long authenticatedOwnerId = getAuthenticatedOwnerId(authentication, request);
+        if (authenticatedOwnerId == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "You cannot remove this restaurant"));
         }
 
-        restaurantService.removeRestaurant(restaurantId, authenticatedOwner.getId());
+        restaurantService.removeRestaurant(restaurantId, authenticatedOwnerId);
         return ResponseEntity.noContent().build();
     }
 
-    private Owner getAuthenticatedOwner(Authentication authentication) {
+    private Long getAuthenticatedOwnerId(
+            Authentication authentication, HttpServletRequest request) {
         if (authentication == null || !authentication.isAuthenticated()) return null;
+        Object principalValue =
+                request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE);
+        if (principalValue instanceof AuthenticatedOwnerPrincipal principal) {
+            return principal.ownerId();
+        }
         return ownerRepository.findByEmail(authentication.getName())
-                .or(() -> ownerRepository.findByPhone(authentication.getName())).orElse(null);
+                .or(() -> ownerRepository.findByPhone(authentication.getName()))
+                .map(Owner::getId)
+                .orElse(null);
     }
 
     private Map<String, Object> toResponse(Restaurant restaurant) {

@@ -92,6 +92,8 @@ class RestaurantPaymentServiceRegressionTest {
         assertEquals("CALL_WAITER", notification.getValue().getNotificationType());
         assertEquals("PENDING", notification.getValue().getNotificationStatus());
         assertEquals(assistance, notification.getValue().getAssistanceRequest());
+        verify(eventPublisher).publishEvent(RestaurantLiveUpdateEvent.dashboardChanged(
+                4L, RestaurantLiveUpdateEvent.WAITER_REQUEST_CHANGED));
     }
 
     @Test
