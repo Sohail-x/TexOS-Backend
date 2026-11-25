@@ -18,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -69,6 +72,31 @@ public class BillService {
                     new ResourceNotFoundException("Bill not found")
                 );
         return mapToResponse(bill);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BillResponse> getBillsForOrders(List<RestaurantOrder> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> orderIds = orders.stream()
+                .map(RestaurantOrder::getId)
+                .toList();
+        Map<Long, Bill> billsByOrderId = new HashMap<>();
+        for (Bill bill : billRepository.findAllWithOrderDetailsByOrder_IdIn(orderIds)) {
+            billsByOrderId.put(bill.getOrder().getId(), bill);
+        }
+
+        List<BillResponse> responses = new ArrayList<>(orders.size());
+        for (RestaurantOrder order : orders) {
+            Bill bill = billsByOrderId.get(order.getId());
+            if (bill == null) {
+                throw new ResourceNotFoundException("Bill not found");
+            }
+            responses.add(mapToResponse(bill));
+        }
+        return responses;
     }
 
     @Transactional(readOnly = true)

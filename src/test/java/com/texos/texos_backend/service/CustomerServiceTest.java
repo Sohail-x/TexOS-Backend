@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import com.texos.texos_backend.entity.Customer;
 import com.texos.texos_backend.entity.Restaurant;
@@ -26,7 +27,6 @@ class CustomerServiceTest {
         CustomerService customerService =
                 new CustomerService(customerRepository, restaurantRepository);
         Customer orderedCustomer = customer(10L, 3L);
-        Customer noOrdersCustomer = customer(11L, 3L);
 
         when(restaurantRepository.existsById(3L)).thenReturn(true);
         when(customerRepository.findOrderMetricsByRestaurantId(
@@ -36,8 +36,9 @@ class CustomerServiceTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(metrics(10L, 2L, "125.50")));
-        when(customerRepository.findAllByRestaurant_IdOrderByCreatedAtDesc(3L))
-                .thenReturn(List.of(orderedCustomer, noOrdersCustomer));
+        when(customerRepository.findAllByIdInAndRestaurant_IdOrderByCreatedAtDesc(
+                Set.of(10L), 3L))
+                .thenReturn(List.of(orderedCustomer));
 
         var result = customerService.getCustomers(3L);
 

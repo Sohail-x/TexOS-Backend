@@ -37,8 +37,8 @@ class CustomerBillServiceTest {
         RestaurantOrder latest = order("latest", context.table, now.minusMinutes(15));
         RestaurantOrder earlier = order("earlier", context.table, now.minusMinutes(90));
         context.stubOrders(List.of(latest, earlier));
-        when(context.billService.getBillByOrderNumber("earlier")).thenReturn(bill("BILL-1", "40.00"));
-        when(context.billService.getBillByOrderNumber("latest")).thenReturn(bill("BILL-2", "60.00"));
+        when(context.billService.getBillsForOrders(List.of(earlier, latest)))
+                .thenReturn(List.of(bill("BILL-1", "40.00"), bill("BILL-2", "60.00")));
 
         BillResponse result = context.service.getCurrentBill(QR_TOKEN, mock(HttpServletRequest.class));
 
@@ -46,8 +46,7 @@ class CustomerBillServiceTest {
         assertEquals("latest", result.getOrderNumber());
         assertEquals(new BigDecimal("100.00"), result.getTotalAmount());
         assertNull(result.getExpiresAt());
-        verify(context.billService).getBillByOrderNumber("earlier");
-        verify(context.billService).getBillByOrderNumber("latest");
+        verify(context.billService).getBillsForOrders(List.of(earlier, latest));
     }
 
     @Test
@@ -64,14 +63,13 @@ class CustomerBillServiceTest {
         context.stubOrders(List.of(latest, earlier, previousSitting));
         when(context.customerSessionService.getOrderSessionKey(any(HttpServletRequest.class), eq(RESTAURANT_ID), eq(TABLE_ID)))
                 .thenReturn("current-sitting");
-        when(context.billService.getBillByOrderNumber("latest")).thenReturn(bill("BILL-1", "40.00"));
-        when(context.billService.getBillByOrderNumber("earlier")).thenReturn(bill("BILL-2", "60.00"));
+        when(context.billService.getBillsForOrders(List.of(earlier, latest)))
+                .thenReturn(List.of(bill("BILL-2", "60.00"), bill("BILL-1", "40.00")));
 
         BillResponse result = context.service.getCurrentBill(QR_TOKEN, mock(HttpServletRequest.class));
 
         assertEquals(new BigDecimal("100.00"), result.getTotalAmount());
-        verify(context.billService).getBillByOrderNumber("earlier");
-        verify(context.billService).getBillByOrderNumber("latest");
+        verify(context.billService).getBillsForOrders(List.of(earlier, latest));
         verify(context.billService, never()).getBillByOrderNumber("previous");
     }
 
@@ -83,7 +81,8 @@ class CustomerBillServiceTest {
         context.stubOrders(List.of(order));
         when(context.customerSessionService.getOrderSessionKey(any(HttpServletRequest.class), eq(RESTAURANT_ID), eq(TABLE_ID)))
                 .thenReturn("open-sitting");
-        when(context.billService.getBillByOrderNumber("open")).thenReturn(bill("BILL-1", "40.00"));
+        when(context.billService.getBillsForOrders(List.of(order)))
+                .thenReturn(List.of(bill("BILL-1", "40.00")));
 
         BillResponse result = context.service.getCurrentBill(QR_TOKEN, mock(HttpServletRequest.class));
 

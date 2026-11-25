@@ -84,9 +84,7 @@ public class CustomerBillService {
             end++;
         }
         List<RestaurantOrder> sitting = tableOrders.subList(start, end + 1);
-        List<BillResponse> bills = sitting.stream()
-                .map(order -> billService.getBillByOrderNumber(order.getOrderNumber()))
-                .toList();
+        List<BillResponse> bills = billService.getBillsForOrders(sitting);
         RestaurantOrder latestOrder = sitting.get(sitting.size() - 1);
         return combineBills(bills, latestOrder, latestOrder.getCreatedAt().plus(SITTING_GAP));
     }
@@ -155,9 +153,7 @@ public class CustomerBillService {
         List<RestaurantOrder> chronologicalSitting = sitting.stream()
                 .sorted(Comparator.comparing(RestaurantOrder::getCreatedAt))
                 .toList();
-        List<BillResponse> bills = chronologicalSitting.stream()
-                .map(order -> billService.getBillByOrderNumber(order.getOrderNumber()))
-                .toList();
+        List<BillResponse> bills = billService.getBillsForOrders(chronologicalSitting);
         BillResponse response = combineBills(bills, latestOrder, expiresAt);
         response.setOnlinePaymentAvailable(phonePeConfigService.isOnlinePaymentsEnabled(restaurantId));
         return response;

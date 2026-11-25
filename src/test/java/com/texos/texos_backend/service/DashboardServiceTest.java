@@ -10,8 +10,8 @@ import com.texos.texos_backend.dto.DashboardSummaryResponse;
 import com.texos.texos_backend.entity.OrderApprovalStatus;
 import com.texos.texos_backend.entity.OrderStatus;
 import com.texos.texos_backend.entity.PaymentStatus;
-import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.repository.DashboardOrderSummary;
+import com.texos.texos_backend.repository.DashboardRestaurantIdentity;
 import com.texos.texos_backend.repository.RestaurantOrderRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import java.math.BigDecimal;
@@ -40,11 +40,13 @@ class DashboardServiceTest {
     @Test
     void summaryUsesOneAggregateAndPreservesAllResponseValues() {
         Long restaurantId = 42L;
-        Restaurant restaurant = new Restaurant();
-        restaurant.setId(restaurantId);
-        restaurant.setRestaurantName("Test restaurant");
+        DashboardRestaurantIdentity restaurant =
+                org.mockito.Mockito.mock(DashboardRestaurantIdentity.class);
+        when(restaurant.getId()).thenReturn(restaurantId);
+        when(restaurant.getRestaurantName()).thenReturn("Test restaurant");
 
-        when(restaurantRepository.findById(restaurantId)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.findDashboardIdentityById(restaurantId))
+                .thenReturn(Optional.of(restaurant));
         when(orderRepository.getDashboardOrderSummary(
                 eq(restaurantId),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class),
@@ -86,7 +88,7 @@ class DashboardServiceTest {
                 20L,
                 new BigDecimal("1250.75")), response);
 
-        verify(restaurantRepository).findById(restaurantId);
+        verify(restaurantRepository).findDashboardIdentityById(restaurantId);
         verify(orderRepository).getDashboardOrderSummary(
                 restaurantId,
                 today.atStartOfDay(),

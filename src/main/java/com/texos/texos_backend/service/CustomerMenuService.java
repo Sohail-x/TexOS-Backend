@@ -8,7 +8,6 @@ import com.texos.texos_backend.dto.PublicMenuResponse;
 import com.texos.texos_backend.entity.LoyaltyProgram;
 import com.texos.texos_backend.entity.MenuCategory;
 import com.texos.texos_backend.entity.MenuItem;
-import com.texos.texos_backend.entity.RestaurantTable;
 
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 
@@ -23,6 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -36,70 +38,69 @@ public class CustomerMenuService {
     @Transactional(readOnly = true)
     public PublicMenuResponse getCustomerMenu(String qrToken) {
 
-        RestaurantTable table = tableRepository
-                .findByQrTokenAndActiveTrue(qrToken)
+        var menuContext = tableRepository
+                .findCustomerMenuContextByQrToken(qrToken)
                 .orElseThrow(() ->
                     new ResourceNotFoundException(
                         "Invalid QR code or inactive table"
                     )
                 );
 
-        if (!table.getRestaurant().isActive()) {
+        if (!Boolean.TRUE.equals(menuContext.getRestaurantActive())) {
             throw new ResourceNotFoundException(
                 "Restaurant is currently unavailable"
             );
         }
 
-        Long restaurantId = table.getRestaurant().getId();
+        Long restaurantId = menuContext.getRestaurantId();
 
         List<MenuCategory> categories = categoryRepository
                 .findAllByRestaurantIdAndActiveTrueOrderByDisplayOrderAsc(
                     restaurantId
                 );
 
+        Map<Long, List<MenuItem>> itemsByCategory = new HashMap<>();
+        if (!categories.isEmpty()) {
+            List<Long> categoryIds = categories.stream()
+                    .map(MenuCategory::getId)
+                    .toList();
+            for (MenuItem item : itemRepository
+                    .findAllAvailableByCategoryIdInOrderByDisplayOrderAsc(categoryIds)) {
+                itemsByCategory.computeIfAbsent(
+                        item.getCategory().getId(), ignored -> new ArrayList<>())
+                        .add(item);
+            }
+        }
+
         List<PublicMenuCategoryResponse> categoryResponses =
                 categories.stream()
-                .map(this::mapCategoryToResponse)
+                .map(category -> mapCategoryToResponse(
+                        category, itemsByCategory.getOrDefault(category.getId(), List.of())))
                 .toList();
 
         PublicMenuResponse response = new PublicMenuResponse();
 
-        response.setRestaurantName(
-            table.getRestaurant().getRestaurantName()
-        );
-
-        response.setRestaurantAddress(
-            table.getRestaurant().getAddress()
-        );
-
-        response.setRestaurantPhone(
-            table.getRestaurant().getPhone()
-        );
-        String hours = table.getRestaurant().getOpeningHours();
+        response.setRestaurantName(menuContext.getRestaurantName());
+        response.setRestaurantAddress(menuContext.getRestaurantAddress());
+        response.setRestaurantPhone(menuContext.getRestaurantPhone());
+        String hours = menuContext.getOpeningHours();
         response.setOpeningHours(
             (hours != null && !hours.isBlank()) ? hours : "Open 11am-10pm"
         );
-        response.setGoogleMapsUrl(
-            table.getRestaurant().getGoogleMapsUrl()
-        );
-        response.setRewardsEnabled(loyaltyProgramRepository.findByRestaurant_Id(table.getRestaurant().getId())
+        response.setGoogleMapsUrl(menuContext.getGoogleMapsUrl());
+        response.setRewardsEnabled(loyaltyProgramRepository.findByRestaurant_Id(restaurantId)
                 .map(LoyaltyProgram::isEnabled).orElse(false));
 
-        response.setTableNumber(table.getTableNumber());
-
+        response.setTableNumber(menuContext.getTableNumber());
         response.setCategories(categoryResponses);
 
         return response;
     }
 
     private PublicMenuCategoryResponse mapCategoryToResponse(
-            MenuCategory category
+            MenuCategory category,
+            List<MenuItem> items
     ) {
-
-        List<MenuItem> items = itemRepository
-                .findAllByCategoryIdAndAvailableTrueOrderByDisplayOrderAsc(
-                    category.getId()
-                );
 
         List<PublicMenuItemResponse> itemResponses = items.stream()
                 .map(this::mapItemToResponse)

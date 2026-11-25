@@ -4,9 +4,9 @@ import com.texos.texos_backend.dto.DashboardSummaryResponse;
 import com.texos.texos_backend.entity.OrderStatus;
 import com.texos.texos_backend.entity.OrderApprovalStatus;
 import com.texos.texos_backend.entity.PaymentStatus;
-import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.repository.DashboardOrderSummary;
+import com.texos.texos_backend.repository.DashboardRestaurantIdentity;
 import com.texos.texos_backend.repository.RestaurantOrderRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import com.texos.texos_backend.observability.DashboardRequestMeasurements;
@@ -39,7 +39,8 @@ public class DashboardService {
         long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
         try {
 
-            Restaurant restaurant = restaurantRepository.findById(restaurantId)
+            DashboardRestaurantIdentity restaurant = restaurantRepository
+                    .findDashboardIdentityById(restaurantId)
                     .orElseThrow(() ->
                             new ResourceNotFoundException("Restaurant not found"));
 

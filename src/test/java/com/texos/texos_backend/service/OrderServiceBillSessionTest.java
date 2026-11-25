@@ -118,7 +118,8 @@ class OrderServiceBillSessionTest {
             menuItem.setItemName("Test item");
             menuItem.setPrice(new BigDecimal("10.00"));
             menuItem.setCategory(category);
-            when(menuItemRepository.findById(MENU_ITEM_ID)).thenReturn(Optional.of(menuItem));
+            when(menuItemRepository.findAllWithCategoryAndRestaurantByIdIn(
+                    List.of(MENU_ITEM_ID))).thenReturn(List.of(menuItem));
 
             Bill calculatedBill = new Bill();
             calculatedBill.setTotalAmount(new BigDecimal("10.00"));

@@ -18,6 +18,20 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
     @Query("select bill from Bill bill join fetch bill.order where bill.order.id in :orderIds")
     List<Bill> findAllWithOrderByOrder_IdIn(@Param("orderIds") Collection<Long> orderIds);
 
+    @Query("""
+            select distinct bill
+            from Bill bill
+            join fetch bill.order order
+            left join fetch order.items item
+            left join fetch item.menuItem
+            left join fetch order.restaurant
+            left join fetch order.table
+            where order.id in :orderIds
+            """)
+    List<Bill> findAllWithOrderDetailsByOrder_IdIn(
+            @Param("orderIds") Collection<Long> orderIds
+    );
+
     Optional<Bill> findByOrderIdAndOrderRestaurantId(
             Long orderId,
             Long restaurantId

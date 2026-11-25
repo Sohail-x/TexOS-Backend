@@ -144,9 +144,11 @@ public class LoyaltyService {
  public void deleteReward(Long id,Long rewardId){Restaurant restaurant=ownedRestaurant(id);LoyaltyReward r=rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found"));r.setActive(false);r.setDeleted(true);audit(restaurant,"REWARD_ARCHIVED","REWARD",rewardId,r.getRewardName());}
  @Transactional(readOnly=true)
  public Map<String,Object> overview(Long id) {
-  ownedRestaurant(id);Map<String,Object> m=new LinkedHashMap<>();m.put("totalLoyaltyMembers",accounts.countByRestaurant_Id(id));m.put("totalPointsIssued",transactions.sumPointsByRestaurantAndType(id,"EARN"));m.put("totalPointsRedeemed",transactions.sumPointsByRestaurantAndType(id,"REDEEM"));m.put("availablePointsOutstanding",accounts.sumAvailablePointsByRestaurant(id));m.put("totalRewardsCreated",rewards.countByRestaurant_IdAndDeletedFalse(id));m.put("totalSuccessfulRedemptions",redemptions.countByRestaurant_IdAndStatus(id,"REDEEMED"));m.put("recentRedemptions",redemptions.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id).stream().limit(10).map(this::redemptionView).toList());m.put("recentTransactions",transactions.findTop20ByRestaurant_IdOrderByCreatedAtDesc(id).stream().map(this::txView).toList());
+  ownedRestaurant(id);Map<String,Object> m=new LinkedHashMap<>();m.put("totalLoyaltyMembers",accounts.countByRestaurant_Id(id));m.put("totalPointsIssued",transactions.sumPointsByRestaurantAndType(id,"EARN"));m.put("totalPointsRedeemed",transactions.sumPointsByRestaurantAndType(id,"REDEEM"));m.put("availablePointsOutstanding",accounts.sumAvailablePointsByRestaurant(id));m.put("totalRewardsCreated",rewards.countByRestaurant_IdAndDeletedFalse(id));m.put("totalSuccessfulRedemptions",redemptions.countByRestaurant_IdAndStatus(id,"REDEEMED"));
+  List<LoyaltyRedemption> recentRedemptions=redemptions.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id);
+  m.put("recentRedemptions",recentRedemptions.stream().limit(10).map(this::redemptionView).toList());m.put("recentTransactions",transactions.findTop20ByRestaurant_IdOrderByCreatedAtDesc(id).stream().map(this::txView).toList());
   Map<Long,Long> popular=new LinkedHashMap<>();
-  for(LoyaltyRedemption redemption:redemptions.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id)) {
+  for(LoyaltyRedemption redemption:recentRedemptions) {
    if(redemption.getReward()!=null) popular.merge(redemption.getReward().getId(),1L,Long::sum);
   }
   List<Map<String,Object>> popularRewards=rewards.findAllByRestaurant_IdAndDeletedFalseOrderByCreatedAtDesc(id).stream()

@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -68,6 +70,17 @@ public class OrderService {
 
         if (request.getItems() == null || request.getItems().isEmpty()) {
             throw new InvalidRequestException("Order must contain at least one item");
+        }
+
+        List<Long> requestedItemIds = request.getItems().stream()
+                .map(OrderItemRequest::getItemId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, MenuItem> menuItemsById = new HashMap<>();
+        if (!requestedItemIds.isEmpty()) {
+            menuItemRepository.findAllWithCategoryAndRestaurantByIdIn(requestedItemIds)
+                    .forEach(menuItem -> menuItemsById.put(menuItem.getId(), menuItem));
         }
 
         Set<Long> itemIds = new HashSet<>();
@@ -138,9 +151,11 @@ order.setPaymentStatus(PaymentStatus.PENDING);
                 throw new InvalidRequestException("Item quantity must be between 1 and 99");
             }
 
-            MenuItem menuItem = menuItemRepository.findById(requestedItem.getItemId())
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            "Menu item not found: " + requestedItem.getItemId()));
+            MenuItem menuItem = menuItemsById.get(requestedItem.getItemId());
+            if (menuItem == null) {
+                throw new ResourceNotFoundException(
+                        "Menu item not found: " + requestedItem.getItemId());
+            }
 
             if (!menuItem.isAvailable()) {
                 throw new ResourceConflictException(menuItem.getItemName() + " is currently unavailable");

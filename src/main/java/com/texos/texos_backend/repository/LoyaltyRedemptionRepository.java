@@ -1,6 +1,7 @@
 package com.texos.texos_backend.repository;
 import com.texos.texos_backend.entity.LoyaltyRedemption;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -8,6 +9,7 @@ import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
 public interface LoyaltyRedemptionRepository extends JpaRepository<LoyaltyRedemption,Long>{
+ @EntityGraph(attributePaths={"customer","reward","order"})
  List<LoyaltyRedemption> findTop100ByRestaurant_IdOrderByCreatedAtDesc(Long restaurantId);
  long countByRestaurant_IdAndStatus(Long restaurantId,String status);
  @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -81,9 +81,9 @@ public class CustomerService {
         }
 
         return customerRepository
-                .findAllByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
+                .findAllByIdInAndRestaurant_IdOrderByCreatedAtDesc(
+                        metricsByCustomer.keySet(), restaurantId)
                 .stream()
-                .filter(customer -> metricsByCustomer.containsKey(customer.getId()))
                 .map(customer -> toResponse(
                         customer, metricsByCustomer.get(customer.getId())))
                 .toList();

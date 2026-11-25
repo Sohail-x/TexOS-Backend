@@ -12,6 +12,7 @@ import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
@@ -21,6 +22,18 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
     );
 
     List<Customer> findAllByRestaurant_IdOrderByCreatedAtDesc(Long restaurantId);
+
+    @Query("""
+            select customer
+            from Customer customer
+            where customer.id in :customerIds
+              and customer.restaurant.id = :restaurantId
+            order by customer.createdAt desc
+            """)
+    List<Customer> findAllByIdInAndRestaurant_IdOrderByCreatedAtDesc(
+            @Param("customerIds") Collection<Long> customerIds,
+            @Param("restaurantId") Long restaurantId
+    );
 
     Optional<Customer> findByIdAndRestaurant_Id(Long customerId, Long restaurantId);
 

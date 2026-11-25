@@ -13,6 +13,16 @@ import jakarta.persistence.LockModeType;
 
 public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
+    @Query("""
+            select restaurant.id as id,
+                   restaurant.restaurantName as restaurantName
+            from Restaurant restaurant
+            where restaurant.id = :restaurantId
+            """)
+    Optional<DashboardRestaurantIdentity> findDashboardIdentityById(
+            @Param("restaurantId") Long restaurantId
+    );
+
     List<Restaurant> findAllByOwnerId(Long ownerId);
 
     List<Restaurant> findAllByOwnerIdAndActiveTrue(Long ownerId);
