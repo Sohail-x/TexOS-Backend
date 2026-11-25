@@ -12,7 +12,11 @@ import java.util.List;
 public class LoyaltyController {
  private final LoyaltyService loyalty;
  @GetMapping("/api/loyalty/status")
- public Map<String,Object> customerStatus(@RequestParam String qrToken,@RequestParam(required=false) String from,@RequestParam(required=false) String to,HttpServletRequest request){return loyalty.customerStatus(qrToken,request,from,to);}
+ public Map<String,Object> customerStatus(@RequestParam String qrToken,@RequestParam(required=false) String from,
+      @RequestParam(required=false) String to,@RequestParam(required=false) Integer historyPage,
+      @RequestParam(required=false) Integer historySize,HttpServletRequest request){
+  return loyalty.customerStatus(qrToken,request,from,to,historyPage,historySize);
+ }
  @GetMapping("/api/loyalty/balance")
  public Map<String,Object> balance(@RequestParam String qrToken,HttpServletRequest request){return loyalty.customerBalance(qrToken,request);}
  @GetMapping("/api/restaurants/{restaurantId}/loyalty/overview")

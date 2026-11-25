@@ -1,10 +1,16 @@
 package com.texos.texos_backend.service;
 
+import com.texos.texos_backend.dto.LoyaltyAccountOverview;
+import com.texos.texos_backend.dto.LoyaltyOverviewReward;
+import com.texos.texos_backend.dto.LoyaltyRedemptionSummary;
+import com.texos.texos_backend.dto.LoyaltyTransactionOverview;
+import com.texos.texos_backend.dto.LoyaltyTransactionSummary;
 import com.texos.texos_backend.entity.*;
 import com.texos.texos_backend.repository.*;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +57,11 @@ public class LoyaltyService {
  }
  @Transactional
  public Map<String,Object> customerStatus(String qr,HttpServletRequest req,String from,String to) {
+  return customerStatus(qr,req,from,to,null,null);
+ }
+ @Transactional
+ public Map<String,Object> customerStatus(String qr,HttpServletRequest req,String from,String to,
+      Integer historyPage,Integer historySize) {
   Restaurant r=table(qr).getRestaurant(); Map<String,Object> out=new LinkedHashMap<>();
   LoyaltyProgram p=programs.findByRestaurant_Id(r.getId()).orElse(null);
   out.put("enabled",p!=null&&p.isEnabled());out.put("restaurantName",r.getRestaurantName());
@@ -62,19 +73,43 @@ public class LoyaltyService {
    if(a!=null) expireAvailableLots(a);
    out.put("customerName",c.getCustomerName());out.put("mobileNumber",c.getMobileNumber());out.put("availablePoints",a==null?0:a.getAvailablePoints());
    out.put("lifetimeEarnedPoints",a==null?0:a.getLifetimeEarnedPoints());out.put("lifetimeRedeemedPoints",a==null?0:a.getLifetimeRedeemedPoints());out.put("pointsDebt",a==null?0:a.getPointsDebt());
-   out.put("transactions",customerHistory(r.getId(),c.getId(),from,to).stream().map(this::txView).toList());
+   CustomerHistory history=customerHistory(r.getId(),c.getId(),from,to,historyPage,historySize);
+   out.put("transactions",history.transactions().stream().map(this::txView).toList());
+   if(historyPage!=null||historySize!=null)out.put("transactionsHasMore",history.hasMore());
   }
   out.put("rewards",rewards.findAllByRestaurant_IdAndActiveTrueAndDeletedFalseOrderByCreatedAtDesc(r.getId()).stream().filter(this::available).map(this::rewardView).toList());
   return out;
  }
- private List<LoyaltyTransaction> customerHistory(Long restaurantId,Long customerId,String from,String to) {
-  if(from==null&&to==null)return transactions.findTop100ByRestaurant_IdAndCustomer_IdOrderByCreatedAtDesc(restaurantId,customerId);
+ private CustomerHistory customerHistory(Long restaurantId,Long customerId,String from,String to,
+      Integer historyPage,Integer historySize) {
+  boolean paginated=historyPage!=null||historySize!=null;
+  if(paginated&&(historyPage==null||historySize==null||historyPage<0||historySize<1||historySize>100))
+   throw new IllegalArgumentException("History page must be non-negative and page size must be between 1 and 100");
+  if(from==null&&to==null) {
+   if(paginated) {
+    int pageSize=historySize;
+    List<LoyaltyTransactionSummary> result=transactions.findCustomerSummaries(
+        restaurantId,customerId,PageRequest.of(historyPage,pageSize+1));
+    boolean hasMore=result.size()>pageSize;
+    if(hasMore)result=result.subList(0,pageSize);
+    return new CustomerHistory(result,hasMore);
+   }
+   return new CustomerHistory(transactions.findCustomerSummaries(restaurantId,customerId,PageRequest.of(0,100)),false);
+  }
   if(from==null||to==null)throw new IllegalArgumentException("Both history dates are required");
   java.time.LocalDate start=java.time.LocalDate.parse(from);
   java.time.LocalDate end=java.time.LocalDate.parse(to);
   if(end.isBefore(start))throw new IllegalArgumentException("History end date must not be before start date");
-  return transactions.findAllByRestaurant_IdAndCustomer_IdAndCreatedAtBetweenOrderByCreatedAtDesc(
-      restaurantId,customerId,start.atStartOfDay(),end.plusDays(1).atStartOfDay().minusNanos(1));
+  LocalDateTime fromTime=start.atStartOfDay();
+  LocalDateTime toTime=end.plusDays(1).atStartOfDay().minusNanos(1);
+  if(!paginated)
+   return new CustomerHistory(transactions.findCustomerSummariesBetween(restaurantId,customerId,fromTime,toTime),false);
+  int pageSize=historySize;
+  List<LoyaltyTransactionSummary> result=transactions.findCustomerSummariesBetween(
+      restaurantId,customerId,fromTime,toTime,PageRequest.of(historyPage,pageSize+1));
+  boolean hasMore=result.size()>pageSize;
+  if(hasMore)result=result.subList(0,pageSize);
+  return new CustomerHistory(result,hasMore);
  }
  @Transactional
  public Map<String,Object> customerBalance(String qr,HttpServletRequest req) {
@@ -84,7 +119,7 @@ public class LoyaltyService {
   Map<String,Object> m=new LinkedHashMap<>();m.put("availablePoints",a==null?0:a.getAvailablePoints());m.put("lifetimeEarnedPoints",a==null?0:a.getLifetimeEarnedPoints());m.put("lifetimeRedeemedPoints",a==null?0:a.getLifetimeRedeemedPoints());m.put("pointsDebt",a==null?0:a.getPointsDebt());
   LoyaltyProgram p=program(r);m.put("conversionPoints",p.getConversionPoints());m.put("conversionInr",p.getConversionInr());
   m.put("minimumRedemptionPoints",p.getMinimumRedemptionPoints());
-  m.put("transactions",transactions.findTop100ByRestaurant_IdAndCustomer_IdOrderByCreatedAtDesc(r.getId(),c.getId()).stream().map(this::txView).toList());return m;
+  m.put("transactions",transactions.findCustomerSummaries(r.getId(),c.getId(),PageRequest.of(0,100)).stream().map(this::txView).toList());return m;
  }
  @Transactional
  public Map<String,Object> ownerSettings(Long id) {Restaurant r=ownedRestaurant(id);return settingsView(program(r));}
@@ -144,23 +179,34 @@ public class LoyaltyService {
  public void deleteReward(Long id,Long rewardId){Restaurant restaurant=ownedRestaurant(id);LoyaltyReward r=rewards.lockReward(rewardId,id).orElseThrow(()->new ResourceNotFoundException("Reward not found"));r.setActive(false);r.setDeleted(true);audit(restaurant,"REWARD_ARCHIVED","REWARD",rewardId,r.getRewardName());}
  @Transactional(readOnly=true)
  public Map<String,Object> overview(Long id) {
-  ownedRestaurant(id);Map<String,Object> m=new LinkedHashMap<>();m.put("totalLoyaltyMembers",accounts.countByRestaurant_Id(id));m.put("totalPointsIssued",transactions.sumPointsByRestaurantAndType(id,"EARN"));m.put("totalPointsRedeemed",transactions.sumPointsByRestaurantAndType(id,"REDEEM"));m.put("availablePointsOutstanding",accounts.sumAvailablePointsByRestaurant(id));m.put("totalRewardsCreated",rewards.countByRestaurant_IdAndDeletedFalse(id));m.put("totalSuccessfulRedemptions",redemptions.countByRestaurant_IdAndStatus(id,"REDEEMED"));
-  List<LoyaltyRedemption> recentRedemptions=redemptions.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id);
-  m.put("recentRedemptions",recentRedemptions.stream().limit(10).map(this::redemptionView).toList());m.put("recentTransactions",transactions.findTop20ByRestaurant_IdOrderByCreatedAtDesc(id).stream().map(this::txView).toList());
+  ownedRestaurant(id);Map<String,Object> m=new LinkedHashMap<>();
+  LoyaltyAccountOverview accountTotals=accounts.overviewByRestaurant(id);
+  LoyaltyTransactionOverview transactionTotals=transactions.overviewByRestaurant(id);
+  m.put("totalLoyaltyMembers",accountTotals.totalMembers());
+  m.put("totalPointsIssued",transactionTotals.totalPointsIssued());
+  m.put("totalPointsRedeemed",transactionTotals.totalPointsRedeemed());
+  m.put("availablePointsOutstanding",accountTotals.availablePointsOutstanding());
+  m.put("totalRewardsCreated",rewards.countByRestaurant_IdAndDeletedFalse(id));
+  m.put("totalSuccessfulRedemptions",redemptions.countByRestaurant_IdAndStatus(id,"REDEEMED"));
+  List<LoyaltyRedemptionSummary> recentRedemptions=
+      redemptions.findRecentSummariesByRestaurant(id,PageRequest.of(0,100));
+  m.put("recentRedemptions",recentRedemptions.stream().limit(10).map(this::redemptionView).toList());
+  m.put("recentTransactions",transactions.findRecentSummariesByRestaurant(id,PageRequest.of(0,20))
+      .stream().map(this::txView).toList());
   Map<Long,Long> popular=new LinkedHashMap<>();
-  for(LoyaltyRedemption redemption:recentRedemptions) {
-   if(redemption.getReward()!=null) popular.merge(redemption.getReward().getId(),1L,Long::sum);
+  for(LoyaltyRedemptionSummary redemption:recentRedemptions) {
+   if(redemption.rewardId()!=null) popular.merge(redemption.rewardId(),1L,Long::sum);
   }
-  List<Map<String,Object>> popularRewards=rewards.findAllByRestaurant_IdAndDeletedFalseOrderByCreatedAtDesc(id).stream()
-    .map(reward->{Map<String,Object> row=rewardView(reward);row.put("redemptions",popular.getOrDefault(reward.getId(),0L));return row;})
+  List<Map<String,Object>> popularRewards=rewards.findOverviewRewardsByRestaurant(id).stream()
+    .map(reward->overviewRewardView(reward,popular.getOrDefault(reward.id(),0L)))
     .sorted((a,b)->Long.compare(((Number)b.get("redemptions")).longValue(),((Number)a.get("redemptions")).longValue())).limit(5).toList();
   m.put("popularRewards",popularRewards);
-  m.put("pointsEarnedOverTime",transactions.findTop100ByRestaurant_IdAndTransactionTypeOrderByCreatedAtDesc(id,"EARN").stream().map(this::txView).toList());
-  m.put("pointsRedeemedOverTime",transactions.findTop100ByRestaurant_IdAndTransactionTypeOrderByCreatedAtDesc(id,"REDEEM").stream().map(this::txView).toList());
+  m.put("pointsEarnedOverTime",transactions.findRecentSummariesByRestaurantAndType(id,"EARN",PageRequest.of(0,8)).stream().map(this::txView).toList());
+  m.put("pointsRedeemedOverTime",transactions.findRecentSummariesByRestaurantAndType(id,"REDEEM",PageRequest.of(0,8)).stream().map(this::txView).toList());
   return m;
  }
  @Transactional(readOnly=true)
- public List<Map<String,Object>> ownerRedemptions(Long id){ownedRestaurant(id);return redemptions.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id).stream().map(this::redemptionView).toList();}
+ public List<Map<String,Object>> ownerRedemptions(Long id){ownedRestaurant(id);return redemptions.findRecentSummariesByRestaurant(id,PageRequest.of(0,100)).stream().map(this::redemptionView).toList();}
  @Transactional(readOnly=true)
  public List<Map<String,Object>> ownerAuditLogs(Long id){ownedRestaurant(id);return auditLogs.findTop100ByRestaurant_IdOrderByCreatedAtDesc(id).stream().map(log->{Map<String,Object> row=new LinkedHashMap<>();row.put("id",log.getId());row.put("actor",log.getActorIdentity());row.put("action",log.getAction());row.put("targetType",log.getTargetType());row.put("targetId",log.getTargetId());row.put("details",log.getDetails());row.put("createdAt",log.getCreatedAt());return row;}).toList();}
 
@@ -384,15 +430,31 @@ public class LoyaltyService {
  }
  private void saveTx(Restaurant r,Customer c,RestaurantOrder o,LoyaltyRedemption red,String type,long pts,String desc,String key){if(transactions.existsByIdempotencyKey(key))return;LoyaltyTransaction t=new LoyaltyTransaction();t.setRestaurant(r);t.setCustomer(c);t.setOrder(o);t.setRedemption(red);t.setTransactionType(type);t.setPoints(pts);t.setDescription(desc);t.setIdempotencyKey(key);transactions.save(t);}
  private boolean available(LoyaltyReward r){LocalDateTime n=LocalDateTime.now();return r.isActive()&&!r.isDeleted()&&(r.getStartDate()==null||!r.getStartDate().isAfter(n))&&(r.getExpiryDate()==null||r.getExpiryDate().isAfter(n))&&(r.getRemainingQuantity()==null||r.getRemainingQuantity()>0)&&(r.getMaxRedemptions()==null||r.getRedemptionCount()<r.getMaxRedemptions());}
+ private Map<String,Object> overviewRewardView(LoyaltyOverviewReward r,long redemptions){
+  LocalDateTime now=LocalDateTime.now();Map<String,Object> m=new LinkedHashMap<>();
+  m.put("id",r.id());m.put("rewardName",r.rewardName());m.put("description",r.description());m.put("imageUrl",null);
+  m.put("rewardType",r.rewardType());m.put("pointsRequired",r.pointsRequired());m.put("menuItemId",r.menuItemId());
+  m.put("menuItemName",r.menuItemName());m.put("discountPercentage",r.discountPercentage());
+  m.put("discountAmount",r.discountAmount());m.put("maximumDiscount",r.maximumDiscount());
+  m.put("minimumOrderAmount",r.minimumOrderAmount());m.put("totalQuantity",r.totalQuantity());
+  m.put("remainingQuantity",r.remainingQuantity());m.put("maxRedemptions",r.maxRedemptions());
+  m.put("redemptionCount",r.redemptionCount());m.put("startDate",r.startDate());m.put("expiryDate",r.expiryDate());
+  m.put("active",r.active());m.put("available",r.active()&&(r.startDate()==null||!r.startDate().isAfter(now))
+      &&(r.expiryDate()==null||r.expiryDate().isAfter(now))
+      &&(r.remainingQuantity()==null||r.remainingQuantity()>0)
+      &&(r.maxRedemptions()==null||r.redemptionCount()<r.maxRedemptions()));
+  m.put("redemptions",redemptions);return m;
+ }
  private Map<String,Object> settingsView(LoyaltyProgram p){Map<String,Object>m=new LinkedHashMap<>();m.put("enabled",p.isEnabled());m.put("pointsPer100",p.getPointsPer100());m.put("minimumOrderAmount",p.getMinimumOrderAmount());m.put("minimumRedemptionPoints",p.getMinimumRedemptionPoints());m.put("pointsExpiryDays",p.getPointsExpiryDays());m.put("conversionPoints",p.getConversionPoints());m.put("conversionInr",p.getConversionInr());return m;}
  private Map<String,Object> rewardView(LoyaltyReward r){Map<String,Object>m=new LinkedHashMap<>();m.put("id",r.getId());m.put("rewardName",r.getRewardName());m.put("description",r.getDescription());m.put("imageUrl",r.getImageUrl());m.put("rewardType",r.getRewardType());m.put("pointsRequired",r.getPointsRequired());m.put("menuItemId",r.getMenuItem()==null?null:r.getMenuItem().getId());m.put("menuItemName",r.getMenuItem()==null?null:r.getMenuItem().getItemName());m.put("discountPercentage",r.getDiscountPercentage());m.put("discountAmount",r.getDiscountAmount());m.put("maximumDiscount",r.getMaximumDiscount());m.put("minimumOrderAmount",r.getMinimumOrderAmount());m.put("totalQuantity",r.getTotalQuantity());m.put("remainingQuantity",r.getRemainingQuantity());m.put("maxRedemptions",r.getMaxRedemptions());m.put("redemptionCount",r.getRedemptionCount());m.put("startDate",r.getStartDate());m.put("expiryDate",r.getExpiryDate());m.put("active",r.isActive());m.put("available",available(r));return m;}
- private Map<String,Object> txView(LoyaltyTransaction t){
-  Map<String,Object>m=new LinkedHashMap<>();m.put("id",t.getId());m.put("type",t.getTransactionType());
-  long displayedPoints="RESERVATION".equals(t.getTransactionType())||"REDEEM".equals(t.getTransactionType())?-t.getPoints():t.getPoints();
-  m.put("points",displayedPoints);m.put("description",t.getDescription());
-  m.put("orderId",t.getOrder()==null?null:t.getOrder().getOrderNumber());m.put("createdAt",t.getCreatedAt());return m;
+ private Map<String,Object> txView(LoyaltyTransactionSummary t){
+  Map<String,Object>m=new LinkedHashMap<>();m.put("id",t.id());m.put("type",t.type());
+  long displayedPoints="RESERVATION".equals(t.type())||"REDEEM".equals(t.type())?-t.points():t.points();
+  m.put("points",displayedPoints);m.put("description",t.description());
+  m.put("orderId",t.orderId());m.put("createdAt",t.createdAt());return m;
  }
- private Map<String,Object> redemptionView(LoyaltyRedemption r){Map<String,Object>m=new LinkedHashMap<>();m.put("id",r.getId());m.put("customerName",r.getCustomer().getCustomerName());m.put("customerMobile",r.getCustomer().getMobileNumber());m.put("rewardName",r.getReward()==null?"Point-to-INR redemption":r.getReward().getRewardName());m.put("pointsUsed",r.getPointsUsed());m.put("redemptionCode",r.getRedemptionCode());m.put("orderId",r.getOrder()==null?null:r.getOrder().getOrderNumber());m.put("status",r.getStatus());m.put("createdAt",r.getCreatedAt());m.put("redeemedAt",r.getRedeemedAt());return m;}
+ private Map<String,Object> redemptionView(LoyaltyRedemptionSummary r){Map<String,Object>m=new LinkedHashMap<>();m.put("id",r.id());m.put("customerName",r.customerName());m.put("customerMobile",r.customerMobile());m.put("rewardName",r.rewardName()==null?"Point-to-INR redemption":r.rewardName());m.put("pointsUsed",r.pointsUsed());m.put("redemptionCode",r.redemptionCode());m.put("orderId",r.orderId());m.put("status",r.status());m.put("createdAt",r.createdAt());m.put("redeemedAt",r.redeemedAt());return m;}
+ private record CustomerHistory(List<LoyaltyTransactionSummary> transactions,boolean hasMore) {}
  private void audit(Restaurant restaurant,String action,String targetType,Long targetId,String details){
   String actor=SecurityContextHolder.getContext().getAuthentication()==null?"unknown":SecurityContextHolder.getContext().getAuthentication().getName();
   LoyaltyAuditLog log=new LoyaltyAuditLog();log.setRestaurant(restaurant);log.setActorIdentity(actor==null?"unknown":actor);log.setAction(action);log.setTargetType(targetType);log.setTargetId(targetId);log.setDetails(details);auditLogs.save(log);
