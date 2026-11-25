@@ -19,6 +19,7 @@ import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.entity.RestaurantOrder;
 import com.texos.texos_backend.entity.RestaurantTable;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.BillRepository;
 import com.texos.texos_backend.repository.CustomerRepository;
 import com.texos.texos_backend.repository.MenuItemRepository;
@@ -56,7 +57,26 @@ class RecentOrdersDashboardTest {
                 billRepository,
                 new BillService(billRepository, mock(OrderCalculationService.class)));
 
-        List<OrderResponse> responses = service.getRecentOrdersForOwner(42L);
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.begin(
+                        "/api/restaurants/{restaurantId}/dashboard/recent-orders");
+        List<OrderResponse> responses;
+        try {
+            responses = service.getRecentOrdersForOwner(42L);
+            assertEquals(2, measurement.getResponseOrderCount());
+            assertEquals(2, measurement.getResponseItemCount());
+            assertEquals(2, measurement.getResponseBillItemCount());
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.RECENT_INITIAL_ORDER_REPOSITORY));
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.RECENT_DETAIL_ORDER_REPOSITORY));
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.RECENT_BILL_REPOSITORY));
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.RECENT_DTO_MAPPING));
+        } finally {
+            DashboardRequestMeasurements.clear();
+        }
 
         assertEquals(List.of(1L, 4L), responses.stream().map(OrderResponse::getId).toList());
         assertEquals(List.of("newest", "older"),

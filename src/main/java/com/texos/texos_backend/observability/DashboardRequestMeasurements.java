@@ -1,5 +1,7 @@
 package com.texos.texos_backend.observability;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public final class DashboardRequestMeasurements {
@@ -36,8 +38,28 @@ public final class DashboardRequestMeasurements {
         }
     }
 
+    public static void recordOrderPayloadCounts(
+            int orderCount, long itemCount, long billItemCount) {
+        Measurement measurement = current();
+        if (measurement != null) {
+            measurement.recordOrderPayloadCounts(orderCount, itemCount, billItemCount);
+        }
+    }
+
     public static long startService() {
         return current() == null ? 0 : System.nanoTime();
+    }
+
+    public static long startStage() {
+        return current() == null ? 0 : System.nanoTime();
+    }
+
+    public static void recordStageDuration(
+            Measurement.Stage stage, long startedAtNanos) {
+        Measurement measurement = current();
+        if (measurement != null && startedAtNanos != 0) {
+            measurement.recordStageDuration(stage, System.nanoTime() - startedAtNanos);
+        }
     }
 
     public static long startControllerTiming() {
@@ -53,8 +75,37 @@ public final class DashboardRequestMeasurements {
     }
 
     public static final class Measurement {
+        public enum Stage {
+            JWT_OWNER_LOOKUP("jwt_owner_lookup"),
+            RESTAURANT_OWNERSHIP_VALIDATION("restaurant_ownership_validation"),
+            SUBSCRIPTION_VALIDATION("subscription_validation"),
+            SERVICE_OWNERSHIP_VALIDATION("service_ownership_validation"),
+            PENDING_NOTIFICATION_QUERY("pending_notification_query"),
+            RECENT_INITIAL_ORDER_REPOSITORY("recent_initial_order_repository_call"),
+            RECENT_DETAIL_ORDER_REPOSITORY("recent_detail_order_repository_call"),
+            RECENT_BILL_REPOSITORY("recent_bill_repository_call"),
+            RECENT_DTO_MAPPING("recent_dto_mapping"),
+            ACTIVE_ORDERS_REPOSITORY("active_orders_repository_call"),
+            ACTIVE_BILLS_REPOSITORY("active_bills_repository_call"),
+            ACTIVE_DTO_MAPPING("active_dto_mapping"),
+            SUMMARY_IDENTITY_REPOSITORY("summary_identity_repository_call"),
+            SUMMARY_AGGREGATE_REPOSITORY("summary_aggregate_repository_call"),
+            SUMMARY_MAPPING("summary_mapping");
+
+            private final String metricName;
+
+            Stage(String metricName) {
+                this.metricName = metricName;
+            }
+
+            public String metricName() {
+                return metricName;
+            }
+        }
+
         private final String route;
         private final long startedAtNanos;
+        private final Map<Stage, Long> stageNanos = new EnumMap<>(Stage.class);
         private long securityNanos;
         private boolean securityMeasured;
         private boolean securityFilterReached;
@@ -66,10 +117,14 @@ public final class DashboardRequestMeasurements {
         private long connectionAcquisitionNanos;
         private long queryCount;
         private int responseOrderCount = -1;
-        private long serializationStartedAtNanos;
+        private long jsonConversionResponseStartedAtNanos;
+        private long responseBodyBytes = -1;
+        private long responseOutputWriteNanos;
         private boolean handlerInvoked;
         private boolean handlerFailed;
         private String notificationKind;
+        private long responseItemCount = -1;
+        private long responseBillItemCount = -1;
 
         private Measurement(String route, long startedAtNanos) {
             this.route = route;
@@ -185,8 +240,48 @@ public final class DashboardRequestMeasurements {
             return queryCount;
         }
 
+        public long getStageNanos(Stage stage) {
+            return stageNanos.getOrDefault(stage, -1L);
+        }
+
+        public boolean hasStage(Stage stage) {
+            return stageNanos.containsKey(stage);
+        }
+
+        public void recordStageDuration(Stage stage, long nanos) {
+            stageNanos.merge(stage, nanos, Long::sum);
+        }
+
         public int getResponseOrderCount() {
             return responseOrderCount;
+        }
+
+        public long getResponseItemCount() {
+            return responseItemCount;
+        }
+
+        public long getResponseBillItemCount() {
+            return responseBillItemCount;
+        }
+
+        public void recordOrderPayloadCounts(
+                int orderCount, long itemCount, long billItemCount) {
+            responseOrderCount = orderCount;
+            responseItemCount = itemCount;
+            responseBillItemCount = billItemCount;
+        }
+
+        public long getResponseBodyBytes() {
+            return responseBodyBytes;
+        }
+
+        public long getResponseOutputWriteNanos() {
+            return responseOutputWriteNanos;
+        }
+
+        public void recordResponseOutput(long bytes, long writeNanos) {
+            responseBodyBytes = bytes;
+            responseOutputWriteNanos = writeNanos;
         }
 
         public void recordQuery() {
@@ -205,14 +300,14 @@ public final class DashboardRequestMeasurements {
             connectionAcquisitionNanos += nanos;
         }
 
-        public void startSerialization() {
-            serializationStartedAtNanos = System.nanoTime();
+        public void startJsonConversionResponseWindow() {
+            jsonConversionResponseStartedAtNanos = System.nanoTime();
         }
 
-        public long getSerializationNanos() {
-            return serializationStartedAtNanos == 0
+        public long getJsonConversionResponseWindowNanos() {
+            return jsonConversionResponseStartedAtNanos == 0
                     ? 0
-                    : System.nanoTime() - serializationStartedAtNanos;
+                    : System.nanoTime() - jsonConversionResponseStartedAtNanos;
         }
 
         public static double toMillis(long nanos) {

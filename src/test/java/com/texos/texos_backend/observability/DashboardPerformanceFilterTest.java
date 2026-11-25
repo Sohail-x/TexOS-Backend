@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.http.HttpServletResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
@@ -19,14 +20,14 @@ import jakarta.servlet.ServletException;
 class DashboardPerformanceFilterTest {
 
     @Test
-    void recordsRouteScopedTimingsAndQueryCountsWithoutRestaurantIdentifiers() throws Exception {
+    void recordsRouteTimingsPayloadSizeAndQueryCountsWithoutRestaurantIdentifiers() throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         DashboardPerformanceFilter filter =
                 new DashboardPerformanceFilter(registry, mock(DataSource.class));
         MockHttpServletRequest request = new MockHttpServletRequest(
-                "GET", "/api/restaurants/987/dashboard/summary");
+                "GET", "/api/restaurants/987/dashboard/recent-orders");
         MockHttpServletResponse response = new MockHttpServletResponse();
-        String route = "/api/restaurants/{restaurantId}/dashboard/summary";
+        String route = "/api/restaurants/{restaurantId}/dashboard/recent-orders";
 
         filter.doFilter(request, response, (servletRequest, servletResponse) -> {
             DashboardRequestMeasurements.Measurement measurement =
@@ -40,10 +41,17 @@ class DashboardPerformanceFilterTest {
             measurement.recordQuery();
             measurement.addQueryExecutionNanos(1_000_000);
             measurement.addConnectionAcquisitionNanos(500_000);
-            measurement.startSerialization();
+            measurement.recordStageDuration(
+                    DashboardRequestMeasurements.Measurement.Stage.RECENT_DTO_MAPPING, 1_000);
+            measurement.recordOrderPayloadCounts(1, 2, 2);
+            measurement.startJsonConversionResponseWindow();
+            ((HttpServletResponse) servletResponse).getOutputStream()
+                    .write("{\"ok\":true}".getBytes(StandardCharsets.UTF_8));
             ((HttpServletResponse) servletResponse).setStatus(HttpServletResponse.SC_OK);
         });
 
+        byte[] responseBody = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+        assertEquals("{\"ok\":true}", response.getContentAsString(StandardCharsets.UTF_8));
         assertEquals(1, registry.get("texos.dashboard.request")
                 .tag("route", route).tag("status", "200").timer().count());
         assertEquals(1, registry.get("texos.dashboard.hibernate.query.count")
@@ -51,6 +59,21 @@ class DashboardPerformanceFilterTest {
         assertEquals(1, registry.get("texos.dashboard.hibernate.query.execution")
                 .tag("route", route).tag("status", "200").timer().count());
         assertEquals(1, registry.get("texos.dashboard.hibernate.connection.acquisition")
+                .tag("route", route).tag("status", "200").timer().count());
+        assertEquals(1_000,
+                registry.get("texos.dashboard.stage.duration")
+                        .tag("route", route)
+                        .tag("stage", "recent_dto_mapping")
+                        .tag("status", "200")
+                        .timer()
+                        .totalTime(java.util.concurrent.TimeUnit.NANOSECONDS));
+        assertEquals(responseBody.length,
+                registry.get("texos.dashboard.response.body.bytes")
+                        .tag("route", route).tag("status", "200")
+                        .summary().totalAmount());
+        assertEquals(1, registry.get("texos.dashboard.response.output.write")
+                .tag("route", route).tag("status", "200").timer().count());
+        assertEquals(1, registry.get("texos.dashboard.json.conversion.response.window")
                 .tag("route", route).tag("status", "200").timer().count());
         assertTrue(registry.get("texos.dashboard.response.body.write")
                 .tag("route", route).tag("status", "200").timer().totalTime(
@@ -86,10 +109,13 @@ class DashboardPerformanceFilterTest {
             DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
             DashboardRequestMeasurements.finishControllerTiming(controllerStartedAtNanos);
             measurement.finishMvcHandler();
-            measurement.startSerialization();
+            measurement.startJsonConversionResponseWindow();
+            ((HttpServletResponse) servletResponse).getOutputStream()
+                    .write("{}".getBytes(StandardCharsets.UTF_8));
             ((HttpServletResponse) servletResponse).setStatus(HttpServletResponse.SC_OK);
         });
 
+        assertEquals("{}", response.getContentAsString(StandardCharsets.UTF_8));
         assertEquals(1, registry.get("texos.api.request")
                 .tag("endpoint_type", "payment_notification_next")
                 .tag("status", "200")
@@ -105,7 +131,38 @@ class DashboardPerformanceFilterTest {
                 .tag("status", "200")
                 .tag("outcome", "completed")
                 .timer().count());
+        assertEquals(1, registry.get("texos.api.json.conversion.response.window")
+                .tag("endpoint_type", "payment_notification_next")
+                .tag("status", "200")
+                .tag("outcome", "completed")
+                .timer().count());
         assertNull(DashboardRequestMeasurements.current());
+        registry.close();
+    }
+
+    @Test
+    void countsUtf8BytesWrittenThroughTheServletWriter() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        DashboardPerformanceFilter filter =
+                new DashboardPerformanceFilter(registry, mock(DataSource.class));
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "GET", "/api/restaurants/987/dashboard/active-orders");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        byte[] body = "{\"name\":\"café\"}".getBytes(StandardCharsets.UTF_8);
+
+        filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+            HttpServletResponse wrappedResponse = (HttpServletResponse) servletResponse;
+            wrappedResponse.setContentType("application/json");
+            wrappedResponse.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            wrappedResponse.getWriter().write("{\"name\":\"café\"}");
+        });
+
+        assertEquals("{\"name\":\"café\"}", response.getContentAsString(StandardCharsets.UTF_8));
+        assertEquals(body.length,
+                registry.get("texos.dashboard.response.body.bytes")
+                        .tag("route", "/api/restaurants/{restaurantId}/dashboard/active-orders")
+                        .tag("status", "200")
+                        .summary().totalAmount());
         registry.close();
     }
 

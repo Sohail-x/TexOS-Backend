@@ -14,6 +14,8 @@ import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.service.JwtService;
 import com.texos.texos_backend.service.AdminCredentials;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements.Measurement.Stage;
 
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
@@ -71,9 +73,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
-                Owner owner = ownerRepository.findByEmail(email.trim().toLowerCase())
-                    .or(() -> ownerRepository.findByPhone(email))
-                    .orElse(null);
+                long ownerLookupStartedAtNanos = DashboardRequestMeasurements.startStage();
+                Owner owner;
+                try {
+                    owner = ownerRepository.findByEmail(email.trim().toLowerCase())
+                            .or(() -> ownerRepository.findByPhone(email))
+                            .orElse(null);
+                } finally {
+                    DashboardRequestMeasurements.recordStageDuration(
+                            Stage.JWT_OWNER_LOOKUP, ownerLookupStartedAtNanos);
+                }
 
                 if ((role == null || "OWNER".equals(role))
                     && owner != null &&

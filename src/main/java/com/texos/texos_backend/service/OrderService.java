@@ -517,37 +517,79 @@ public OrderResponse updatePaymentStatus(
     public List<OrderResponse> getRecentOrdersForOwner(Long restaurantId) {
         long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
         try {
-            List<RestaurantOrder> visibleOrders = orderRepository
-                    .findTop10ByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
+            long initialQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            List<RestaurantOrder> latestOrders;
+            try {
+                latestOrders = orderRepository
+                        .findTop10ByRestaurant_IdOrderByCreatedAtDesc(restaurantId);
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.RECENT_INITIAL_ORDER_REPOSITORY,
+                        initialQueryStartedAtNanos);
+            }
+            List<RestaurantOrder> visibleOrders = latestOrders
                     .stream()
                     .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
                             && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
                     .toList();
             if (visibleOrders.isEmpty()) {
-                DashboardRequestMeasurements.recordResponseOrderCount(0);
+                DashboardRequestMeasurements.recordOrderPayloadCounts(0, 0, 0);
                 return List.of();
             }
 
             List<Long> orderIds = visibleOrders.stream()
                     .map(RestaurantOrder::getId)
                     .toList();
-            orderRepository.findAllWithItemsRestaurantAndTableByIdIn(orderIds);
-
-            Map<Long, Bill> billsByOrderId = new LinkedHashMap<>();
-            for (Bill bill : billRepository.findAllByOrder_IdIn(orderIds)) {
-                billsByOrderId.put(bill.getOrder().getId(), bill);
+            long detailQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            try {
+                orderRepository.findAllWithItemsRestaurantAndTableByIdIn(orderIds);
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.RECENT_DETAIL_ORDER_REPOSITORY,
+                        detailQueryStartedAtNanos);
             }
 
-            List<OrderResponse> responses = new ArrayList<>(visibleOrders.size());
-            for (RestaurantOrder order : visibleOrders) {
-                Bill bill = billsByOrderId.get(order.getId());
-                if (bill == null) {
-                    throw new ResourceNotFoundException("Bill not found");
+            long billQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            List<Bill> bills;
+            try {
+                bills = billRepository.findAllByOrder_IdIn(orderIds);
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.RECENT_BILL_REPOSITORY,
+                        billQueryStartedAtNanos);
+            }
+
+            long mappingStartedAtNanos = DashboardRequestMeasurements.startStage();
+            try {
+                Map<Long, Bill> billsByOrderId = new LinkedHashMap<>();
+                long billItemCount = 0;
+                for (Bill bill : bills) {
+                    billsByOrderId.put(bill.getOrder().getId(), bill);
                 }
-                responses.add(mapToResponse(order, billService.mapToResponse(bill)));
+
+                List<OrderResponse> responses = new ArrayList<>(visibleOrders.size());
+                long itemCount = 0;
+                for (RestaurantOrder order : visibleOrders) {
+                    Bill bill = billsByOrderId.get(order.getId());
+                    if (bill == null) {
+                        throw new ResourceNotFoundException("Bill not found");
+                    }
+                    var billResponse = billService.mapToResponse(bill);
+                    billItemCount += billResponse.getItems() == null
+                            ? 0
+                            : billResponse.getItems().size();
+                    OrderResponse response = mapToResponse(order, billResponse);
+                    itemCount += response.getItems() == null ? 0 : response.getItems().size();
+                    responses.add(response);
+                }
+                DashboardRequestMeasurements.recordOrderPayloadCounts(
+                        responses.size(), itemCount, billItemCount);
+                return responses;
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.RECENT_DTO_MAPPING,
+                        mappingStartedAtNanos);
             }
-            DashboardRequestMeasurements.recordResponseOrderCount(responses.size());
-            return responses;
         } finally {
             DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
         }
@@ -561,37 +603,72 @@ public OrderResponse updatePaymentStatus(
                     OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY
             );
             Map<Long, RestaurantOrder> visibleOrdersById = new LinkedHashMap<>();
-            orderRepository
-                    .findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
-                            restaurantId, activeStatuses)
+            long ordersQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            List<RestaurantOrder> activeOrders;
+            try {
+                activeOrders = orderRepository
+                        .findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
+                                restaurantId, activeStatuses);
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.ACTIVE_ORDERS_REPOSITORY,
+                        ordersQueryStartedAtNanos);
+            }
+            activeOrders
                     .stream()
                     .filter(order -> order.getApprovalStatus() != OrderApprovalStatus.PENDING
                             && order.getApprovalStatus() != OrderApprovalStatus.REJECTED)
                     .forEach(order -> visibleOrdersById.putIfAbsent(order.getId(), order));
 
             if (visibleOrdersById.isEmpty()) {
-                DashboardRequestMeasurements.recordResponseOrderCount(0);
+                DashboardRequestMeasurements.recordOrderPayloadCounts(0, 0, 0);
                 return List.of();
             }
 
             List<Long> orderIds = new ArrayList<>(visibleOrdersById.keySet());
-            Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
-            for (Bill bill : billRepository.findAllByOrder_IdIn(orderIds)) {
-                billResponsesByOrderId.put(
-                        bill.getOrder().getId(),
-                        billService.mapToResponse(bill));
+            long billsQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            List<Bill> bills;
+            try {
+                bills = billRepository.findAllByOrder_IdIn(orderIds);
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.ACTIVE_BILLS_REPOSITORY,
+                        billsQueryStartedAtNanos);
             }
 
-            List<OrderResponse> responses = new ArrayList<>(visibleOrdersById.size());
-            for (RestaurantOrder order : visibleOrdersById.values()) {
-                BillResponse billResponse = billResponsesByOrderId.get(order.getId());
-                if (billResponse == null) {
-                    throw new ResourceNotFoundException("Bill not found");
+            long mappingStartedAtNanos = DashboardRequestMeasurements.startStage();
+            try {
+                Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
+                long billItemCount = 0;
+                for (Bill bill : bills) {
+                    var billResponse = billService.mapToResponse(bill);
+                    billItemCount += billResponse.getItems() == null
+                            ? 0
+                            : billResponse.getItems().size();
+                    billResponsesByOrderId.put(
+                            bill.getOrder().getId(),
+                            billResponse);
                 }
-                responses.add(mapToResponse(order, billResponse));
+
+                List<OrderResponse> responses = new ArrayList<>(visibleOrdersById.size());
+                long itemCount = 0;
+                for (RestaurantOrder order : visibleOrdersById.values()) {
+                    BillResponse billResponse = billResponsesByOrderId.get(order.getId());
+                    if (billResponse == null) {
+                        throw new ResourceNotFoundException("Bill not found");
+                    }
+                    OrderResponse response = mapToResponse(order, billResponse);
+                    itemCount += response.getItems() == null ? 0 : response.getItems().size();
+                    responses.add(response);
+                }
+                DashboardRequestMeasurements.recordOrderPayloadCounts(
+                        responses.size(), itemCount, billItemCount);
+                return responses;
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.ACTIVE_DTO_MAPPING,
+                        mappingStartedAtNanos);
             }
-            DashboardRequestMeasurements.recordResponseOrderCount(responses.size());
-            return responses;
         } finally {
             DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
         }

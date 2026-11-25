@@ -20,6 +20,7 @@ import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.entity.RestaurantOrder;
 import com.texos.texos_backend.entity.RestaurantTable;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.BillRepository;
 import com.texos.texos_backend.repository.CustomerRepository;
 import com.texos.texos_backend.repository.MenuItemRepository;
@@ -54,7 +55,24 @@ class ActiveOrdersDashboardTest {
         BillService billService = new BillService(billRepository, mock(OrderCalculationService.class));
         OrderService service = orderService(orderRepository, billRepository, billService);
 
-        List<OrderResponse> responses = service.getActiveOrdersForOwner(42L);
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.begin(
+                        "/api/restaurants/{restaurantId}/dashboard/active-orders");
+        List<OrderResponse> responses;
+        try {
+            responses = service.getActiveOrdersForOwner(42L);
+            assertEquals(2, measurement.getResponseOrderCount());
+            assertEquals(2, measurement.getResponseItemCount());
+            assertEquals(2, measurement.getResponseBillItemCount());
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.ACTIVE_ORDERS_REPOSITORY));
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.ACTIVE_BILLS_REPOSITORY));
+            org.junit.jupiter.api.Assertions.assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.ACTIVE_DTO_MAPPING));
+        } finally {
+            DashboardRequestMeasurements.clear();
+        }
 
         assertEquals(2, responses.size());
         assertEquals(List.of(1L, 4L), responses.stream().map(OrderResponse::getId).toList());

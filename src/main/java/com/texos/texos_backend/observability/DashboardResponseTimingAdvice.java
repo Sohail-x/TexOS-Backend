@@ -48,7 +48,7 @@ public class DashboardResponseTimingAdvice implements ResponseBodyAdvice<Object>
             DashboardRequestMeasurements.Measurement measurement =
                     DashboardPerformanceFilter.currentMeasurement(servletRequest);
             if (measurement != null) {
-                measurement.startSerialization();
+                measurement.startJsonConversionResponseWindow();
             }
         }
         return body;

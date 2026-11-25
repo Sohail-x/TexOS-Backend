@@ -12,6 +12,8 @@ import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import com.texos.texos_backend.service.SubscriptionService;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements.Measurement.Stage;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -129,11 +131,27 @@ public class RestaurantAccessFilter extends OncePerRequestFilter {
             }
             ownerId = owner.getId();
         }
-        if (restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId).isEmpty()) {
+        long ownershipStartedAtNanos = DashboardRequestMeasurements.startStage();
+        boolean restaurantOwned;
+        try {
+            restaurantOwned = restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId).isPresent();
+        } finally {
+            DashboardRequestMeasurements.recordStageDuration(
+                    Stage.RESTAURANT_OWNERSHIP_VALIDATION, ownershipStartedAtNanos);
+        }
+        if (!restaurantOwned) {
             writeError(response, HttpStatus.FORBIDDEN, "You do not have access to this restaurant");
             return;
         }
-        if (!subscriptionService.hasValidSubscription(restaurantId)) {
+        long subscriptionStartedAtNanos = DashboardRequestMeasurements.startStage();
+        boolean subscriptionValid;
+        try {
+            subscriptionValid = subscriptionService.hasValidSubscription(restaurantId);
+        } finally {
+            DashboardRequestMeasurements.recordStageDuration(
+                    Stage.SUBSCRIPTION_VALIDATION, subscriptionStartedAtNanos);
+        }
+        if (!subscriptionValid) {
             writeError(response, HttpStatus.FORBIDDEN,
                     "An active or trialing subscription is required to access this resource");
             return;

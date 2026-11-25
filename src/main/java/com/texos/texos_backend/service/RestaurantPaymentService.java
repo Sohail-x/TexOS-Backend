@@ -29,6 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -390,11 +391,28 @@ public class RestaurantPaymentService {
     public Map<String, Object> getNextOwnerNotification(Long restaurantId, Long ownerId) {
         long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
         try {
-            restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
-            return notificationRepository
-                    .findFirstByRestaurant_IdAndNotificationStatusOrderByPriorityAscCreatedAtAsc(
-                            restaurantId, "PENDING")
+            long ownershipStartedAtNanos = DashboardRequestMeasurements.startStage();
+            try {
+                restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.SERVICE_OWNERSHIP_VALIDATION,
+                        ownershipStartedAtNanos);
+            }
+
+            long notificationQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            Optional<RestaurantPaymentNotification> notification;
+            try {
+                notification = notificationRepository
+                        .findFirstByRestaurant_IdAndNotificationStatusOrderByPriorityAscCreatedAtAsc(
+                                restaurantId, "PENDING");
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.PENDING_NOTIFICATION_QUERY,
+                        notificationQueryStartedAtNanos);
+            }
+            return notification
                     .map(this::notificationView)
                     .orElseGet(Map::of);
         } finally {

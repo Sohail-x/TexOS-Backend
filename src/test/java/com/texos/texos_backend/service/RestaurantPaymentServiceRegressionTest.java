@@ -22,6 +22,7 @@ import com.texos.texos_backend.entity.RestaurantOrder;
 import com.texos.texos_backend.entity.RestaurantPaymentNotification;
 import com.texos.texos_backend.entity.RestaurantTable;
 import com.texos.texos_backend.exception.ResourceConflictException;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.BillRepository;
 import com.texos.texos_backend.repository.CustomerPaymentTransactionRepository;
 import com.texos.texos_backend.repository.OfflineAssistanceRequestRepository;
@@ -75,6 +76,34 @@ class RestaurantPaymentServiceRegressionTest {
 
     @InjectMocks
     private RestaurantPaymentService service;
+
+    @Test
+    void emptyOwnerNotificationRecordsOwnershipAndPendingQueryStages() {
+        when(restaurantRepository.findByIdAndOwnerId(4L, 6L))
+                .thenReturn(Optional.of(new Restaurant()));
+        when(notificationRepository
+                .findFirstByRestaurant_IdAndNotificationStatusOrderByPriorityAscCreatedAtAsc(
+                        4L, "PENDING"))
+                .thenReturn(Optional.empty());
+
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.begin(
+                        "/api/restaurants/{restaurantId}/payments/notifications/next");
+        try {
+            assertTrue(service.getNextOwnerNotification(4L, 6L).isEmpty());
+            assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.SERVICE_OWNERSHIP_VALIDATION));
+            assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.PENDING_NOTIFICATION_QUERY));
+        } finally {
+            DashboardRequestMeasurements.clear();
+        }
+
+        verify(restaurantRepository).findByIdAndOwnerId(4L, 6L);
+        verify(notificationRepository)
+                .findFirstByRestaurant_IdAndNotificationStatusOrderByPriorityAscCreatedAtAsc(
+                        4L, "PENDING");
+    }
 
     @Test
     void allowsWaiterRecallAfterCooldownAndCreatesAnotherOwnerNotification() {

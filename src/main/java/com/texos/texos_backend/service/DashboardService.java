@@ -39,43 +39,66 @@ public class DashboardService {
         long serviceStartedAtNanos = DashboardRequestMeasurements.startService();
         try {
 
-            DashboardRestaurantIdentity restaurant = restaurantRepository
-                    .findDashboardIdentityById(restaurantId)
-                    .orElseThrow(() ->
-                            new ResourceNotFoundException("Restaurant not found"));
+            long identityQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            DashboardRestaurantIdentity restaurant;
+            try {
+                restaurant = restaurantRepository
+                        .findDashboardIdentityById(restaurantId)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException("Restaurant not found"));
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.SUMMARY_IDENTITY_REPOSITORY,
+                        identityQueryStartedAtNanos);
+            }
 
             LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
 
             LocalDateTime start = today.atStartOfDay();
             LocalDateTime end = today.plusDays(1).atStartOfDay();
 
-            DashboardOrderSummary summary = orderRepository.getDashboardOrderSummary(
-                    restaurantId,
-                    start,
-                    end,
-                    HIDDEN_APPROVAL_STATUSES,
-                    OrderStatus.NEW,
-                    OrderStatus.PREPARING,
-                    OrderStatus.READY,
-                    OrderStatus.SERVED,
-                    OrderStatus.CANCELLED,
-                    PaymentStatus.PENDING,
-                    PaymentStatus.PAID);
+            long aggregateQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
+            DashboardOrderSummary summary;
+            try {
+                summary = orderRepository.getDashboardOrderSummary(
+                        restaurantId,
+                        start,
+                        end,
+                        HIDDEN_APPROVAL_STATUSES,
+                        OrderStatus.NEW,
+                        OrderStatus.PREPARING,
+                        OrderStatus.READY,
+                        OrderStatus.SERVED,
+                        OrderStatus.CANCELLED,
+                        PaymentStatus.PENDING,
+                        PaymentStatus.PAID);
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.SUMMARY_AGGREGATE_REPOSITORY,
+                        aggregateQueryStartedAtNanos);
+            }
 
-            return new DashboardSummaryResponse(
-                    restaurant.getId(),
-                    restaurant.getRestaurantName(),
-                    today,
-                    summary.getTotalOrders(),
-                    summary.getNewOrders(),
-                    summary.getPreparingOrders(),
-                    summary.getReadyOrders(),
-                    summary.getServedOrders(),
-                    summary.getCancelledOrders(),
-                    summary.getPendingPayments(),
-                    summary.getPaidOrders(),
-                    summary.getTotalRevenue()
-            );
+            long mappingStartedAtNanos = DashboardRequestMeasurements.startStage();
+            try {
+                return new DashboardSummaryResponse(
+                        restaurant.getId(),
+                        restaurant.getRestaurantName(),
+                        today,
+                        summary.getTotalOrders(),
+                        summary.getNewOrders(),
+                        summary.getPreparingOrders(),
+                        summary.getReadyOrders(),
+                        summary.getServedOrders(),
+                        summary.getCancelledOrders(),
+                        summary.getPendingPayments(),
+                        summary.getPaidOrders(),
+                        summary.getTotalRevenue()
+                );
+            } finally {
+                DashboardRequestMeasurements.recordStageDuration(
+                        DashboardRequestMeasurements.Measurement.Stage.SUMMARY_MAPPING,
+                        mappingStartedAtNanos);
+            }
         } finally {
             DashboardRequestMeasurements.recordServiceDuration(serviceStartedAtNanos);
         }

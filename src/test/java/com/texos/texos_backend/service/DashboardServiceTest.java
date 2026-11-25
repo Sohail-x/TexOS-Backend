@@ -1,6 +1,7 @@
 package com.texos.texos_backend.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -10,6 +11,7 @@ import com.texos.texos_backend.dto.DashboardSummaryResponse;
 import com.texos.texos_backend.entity.OrderApprovalStatus;
 import com.texos.texos_backend.entity.OrderStatus;
 import com.texos.texos_backend.entity.PaymentStatus;
+import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.DashboardOrderSummary;
 import com.texos.texos_backend.repository.DashboardRestaurantIdentity;
 import com.texos.texos_backend.repository.RestaurantOrderRepository;
@@ -70,8 +72,23 @@ class DashboardServiceTest {
         when(orderSummary.getPaidOrders()).thenReturn(20L);
         when(orderSummary.getTotalRevenue()).thenReturn(new BigDecimal("1250.75"));
 
-        DashboardSummaryResponse response = new DashboardService(
-                orderRepository, restaurantRepository).getSummary(restaurantId);
+        DashboardRequestMeasurements.Measurement measurement =
+                DashboardRequestMeasurements.begin(
+                        "/api/restaurants/{restaurantId}/dashboard/summary");
+        DashboardSummaryResponse response;
+        try {
+            response = new DashboardService(
+                    orderRepository, restaurantRepository).getSummary(restaurantId);
+
+            assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.SUMMARY_IDENTITY_REPOSITORY));
+            assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.SUMMARY_AGGREGATE_REPOSITORY));
+            assertTrue(measurement.hasStage(
+                    DashboardRequestMeasurements.Measurement.Stage.SUMMARY_MAPPING));
+        } finally {
+            DashboardRequestMeasurements.clear();
+        }
 
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
         assertEquals(new DashboardSummaryResponse(

@@ -1,5 +1,8 @@
 package com.texos.texos_backend.config;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -9,6 +12,7 @@ import com.texos.texos_backend.entity.Subscription;
 import com.texos.texos_backend.entity.SubscriptionPlan;
 import com.texos.texos_backend.entity.SubscriptionStatus;
 import com.texos.texos_backend.service.JwtService;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
@@ -33,6 +37,9 @@ class DashboardSecurityOptimizationIntegrationTest {
 
     @Autowired
     private JwtService jwtService;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -106,6 +113,41 @@ class DashboardSecurityOptimizationIntegrationTest {
 
         String token = jwtService.generateToken(owner.getEmail(), owner.getTokenVersion());
         expectStatus(restaurant.getId(), token, 200);
+    }
+
+    @Test
+    void notificationNextRecordsItsSecurityAndRepositoryStages() throws Exception {
+        Owner owner = createOwner(true, 0);
+        Restaurant restaurant = createRestaurant(owner);
+        SubscriptionPlan plan = createPlan();
+        addSubscription(
+                restaurant, plan, SubscriptionStatus.ACTIVE,
+                LocalDateTime.now(ZoneOffset.UTC).plusDays(2));
+        String token = jwtService.generateToken(owner.getEmail(), owner.getTokenVersion());
+
+        mockMvc.perform(get(
+                        "/api/restaurants/{restaurantId}/payments/notifications/next",
+                        restaurant.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{}"));
+
+        assertApiStageRecorded("jwt_owner_lookup");
+        assertApiStageRecorded("restaurant_ownership_validation");
+        assertApiStageRecorded("subscription_validation");
+        assertApiStageRecorded("service_ownership_validation");
+        assertApiStageRecorded("pending_notification_query");
+    }
+
+    private void assertApiStageRecorded(String stage) {
+        var timer = meterRegistry.find("texos.api.stage.duration")
+                .tag("endpoint_type", "payment_notification_next")
+                .tag("stage", stage)
+                .tag("status", "200")
+                .tag("outcome", "completed")
+                .timer();
+        assertNotNull(timer, "Expected stage timer: " + stage);
+        assertTrue(timer.count() > 0, "Expected a stage sample: " + stage);
     }
 
     private Owner createOwner(boolean active, int tokenVersion) {

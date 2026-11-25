@@ -52,26 +52,42 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         String route = routeFor(request);
         DashboardRequestMeasurements.Measurement measurement =
                 DashboardRequestMeasurements.begin(route);
+        MeasuredHttpServletResponse measuredResponse = isOrderDashboardRoute(route)
+                ? new MeasuredHttpServletResponse(response)
+                : null;
+        HttpServletResponse instrumentedResponse =
+                measuredResponse == null ? response : measuredResponse;
         request.setAttribute(REQUEST_ATTRIBUTE, measurement);
         boolean chainCompletedNormally = false;
 
         try {
-            filterChain.doFilter(request, response);
+            filterChain.doFilter(request, instrumentedResponse);
             chainCompletedNormally = true;
         } finally {
             try {
                 if (request.isAsyncStarted()) {
                     logAsyncRequest(route, response.getStatus());
                 } else {
-                    if (isDashboardRoute(route)) {
-                        measurement.finishSecurityIfNeeded();
-                    }
-                    String outcome = requestOutcome(
-                            chainCompletedNormally, measurement, response.getStatus());
-                    if (isDashboardRoute(route)) {
-                        recordDashboardRequest(route, response, measurement);
-                    } else {
-                        recordApiRequest(route, response, measurement, outcome);
+                    try {
+                        if (chainCompletedNormally && measuredResponse != null) {
+                            measuredResponse.finishMeasurement();
+                        }
+                    } finally {
+                        if (isDashboardRoute(route)) {
+                            measurement.finishSecurityIfNeeded();
+                        }
+                        String outcome = requestOutcome(
+                                chainCompletedNormally, measurement, response.getStatus());
+                        if (measuredResponse != null) {
+                            measurement.recordResponseOutput(
+                                    measuredResponse.getBytesWritten(),
+                                    measuredResponse.getOutputWriteNanos());
+                        }
+                        if (isDashboardRoute(route)) {
+                            recordDashboardRequest(route, response, measurement);
+                        } else {
+                            recordApiRequest(route, response, measurement, outcome);
+                        }
                     }
                 }
             } finally {
@@ -99,7 +115,9 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         long mvcHandlerNanos = measurement.getMvcHandlerNanos();
         long queryExecutionNanos = measurement.getQueryExecutionNanos();
         long connectionAcquisitionNanos = measurement.getConnectionAcquisitionNanos();
-        long serializationNanos = measurement.getSerializationNanos();
+        long serializationNanos = measurement.getJsonConversionResponseWindowNanos();
+        long responseBytes = measurement.getResponseBodyBytes();
+        long responseOutputWriteNanos = measurement.getResponseOutputWriteNanos();
         long queryCount = measurement.getQueryCount();
         int responseOrderCount = measurement.getResponseOrderCount();
         long totalNanos = measurement.getElapsedNanos();
@@ -117,16 +135,33 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 route, status, connectionAcquisitionNanos);
         recordDashboardTimer(
                 "texos.dashboard.response.body.write", route, status, serializationNanos);
+        recordDashboardTimer(
+                "texos.dashboard.json.conversion.response.window",
+                route, status, serializationNanos);
+        if (responseBytes >= 0) {
+            recordDashboardTimer(
+                    "texos.dashboard.response.output.write",
+                    route, status, responseOutputWriteNanos);
+        }
+        recordStageTimers(route, status, measurement);
         DistributionSummary.builder("texos.dashboard.hibernate.query.count")
                 .tag("route", route)
                 .register(meterRegistry)
                 .record(queryCount);
+        if (responseBytes >= 0) {
+            DistributionSummary.builder("texos.dashboard.response.body.bytes")
+                    .tag("route", route)
+                    .tag("status", Integer.toString(status))
+                    .register(meterRegistry)
+                    .record(responseBytes);
+        }
 
         HikariPoolMXBean pool = hikariPool();
         log.atInfo()
                 .addKeyValue("event", "dashboard_request")
                 .addKeyValue("route", route)
                 .addKeyValue("status", status)
+                .addKeyValue("timing_relationship", "nested_non_additive")
                 .addKeyValue("request_total_ms", millis(totalNanos))
                 .addKeyValue("security_ms", millis(securityNanos))
                 .addKeyValue("controller_ms", millis(controllerNanos))
@@ -137,12 +172,38 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 .addKeyValue("response_order_count", responseOrderCount)
                 .addKeyValue("connection_acquisition_ms", millis(connectionAcquisitionNanos))
                 .addKeyValue("response_body_write_ms", millis(serializationNanos))
+                .addKeyValue("json_conversion_response_window_ms", millis(serializationNanos))
+                .addKeyValue("response_output_write_call_ms",
+                        responseBytes < 0 ? -1 : millis(responseOutputWriteNanos))
+                .addKeyValue("response_body_bytes", responseBytes)
                 .addKeyValue("hikari_active", pool == null ? -1 : pool.getActiveConnections())
                 .addKeyValue("hikari_idle", pool == null ? -1 : pool.getIdleConnections())
                 .addKeyValue("hikari_pending",
                         pool == null ? -1 : pool.getThreadsAwaitingConnection())
                 .addKeyValue("application_uptime_ms",
                         ManagementFactory.getRuntimeMXBean().getUptime())
+                .addKeyValue("response_item_count", measurement.getResponseItemCount())
+                .addKeyValue("response_bill_item_count", measurement.getResponseBillItemCount())
+                .addKeyValue("recent_initial_order_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.RECENT_INITIAL_ORDER_REPOSITORY))
+                .addKeyValue("recent_detail_order_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.RECENT_DETAIL_ORDER_REPOSITORY))
+                .addKeyValue("recent_bill_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.RECENT_BILL_REPOSITORY))
+                .addKeyValue("recent_dto_mapping_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.RECENT_DTO_MAPPING))
+                .addKeyValue("active_orders_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.ACTIVE_ORDERS_REPOSITORY))
+                .addKeyValue("active_bills_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.ACTIVE_BILLS_REPOSITORY))
+                .addKeyValue("active_dto_mapping_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.ACTIVE_DTO_MAPPING))
+                .addKeyValue("summary_identity_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.SUMMARY_IDENTITY_REPOSITORY))
+                .addKeyValue("summary_aggregate_repository_call_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.SUMMARY_AGGREGATE_REPOSITORY))
+                .addKeyValue("summary_mapping_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.SUMMARY_MAPPING))
                 .log("dashboard_request");
     }
 
@@ -162,7 +223,9 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         long mvcHandlerNanos = measurement.getMvcHandlerNanos();
         long queryExecutionNanos = measurement.getQueryExecutionNanos();
         long connectionAcquisitionNanos = measurement.getConnectionAcquisitionNanos();
-        long serializationNanos = measurement.getSerializationNanos();
+        long serializationNanos = measurement.getJsonConversionResponseWindowNanos();
+        long responseBytes = measurement.getResponseBodyBytes();
+        long responseOutputWriteNanos = measurement.getResponseOutputWriteNanos();
         long queryCount = measurement.getQueryCount();
         long totalNanos = measurement.getElapsedNanos();
 
@@ -177,12 +240,27 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 endpointType, status, outcome, connectionAcquisitionNanos);
         recordApiTimer("texos.api.response.body.write",
                 endpointType, status, outcome, serializationNanos);
+        recordApiTimer("texos.api.json.conversion.response.window",
+                endpointType, status, outcome, serializationNanos);
+        if (responseBytes >= 0) {
+            recordApiTimer("texos.api.response.output.write",
+                    endpointType, status, outcome, responseOutputWriteNanos);
+        }
+        recordStageTimers(endpointType, status, outcome, measurement);
         DistributionSummary.builder("texos.api.hibernate.query.count")
                 .tag("endpoint_type", endpointType)
                 .tag("status", Integer.toString(status))
                 .tag("outcome", outcome)
                 .register(meterRegistry)
                 .record(queryCount);
+        if (responseBytes >= 0) {
+            DistributionSummary.builder("texos.api.response.body.bytes")
+                    .tag("endpoint_type", endpointType)
+                    .tag("status", Integer.toString(status))
+                    .tag("outcome", outcome)
+                    .register(meterRegistry)
+                    .record(responseBytes);
+        }
 
         HikariPoolMXBean pool = hikariPool();
         log.atInfo()
@@ -193,6 +271,7 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 .addKeyValue("outcome", outcome)
                 .addKeyValue("timing_relationship", "nested_non_additive")
                 .addKeyValue("request_total_ms", millis(totalNanos))
+                .addKeyValue("endpoint_total_ms", millis(totalNanos))
                 .addKeyValue("security_ms", millis(securityNanos))
                 .addKeyValue("security_timing_available",
                         measurement.wasSecurityFilterReached())
@@ -203,7 +282,21 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
                 .addKeyValue("hibernate_query_count", queryCount)
                 .addKeyValue("connection_acquisition_ms", millis(connectionAcquisitionNanos))
                 .addKeyValue("response_body_write_ms", millis(serializationNanos))
+                .addKeyValue("json_conversion_response_window_ms", millis(serializationNanos))
+                .addKeyValue("response_output_write_call_ms",
+                        responseBytes < 0 ? -1 : millis(responseOutputWriteNanos))
+                .addKeyValue("response_body_bytes", responseBytes)
                 .addKeyValue("notification_kind", measurement.getNotificationKind())
+                .addKeyValue("jwt_owner_lookup_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.JWT_OWNER_LOOKUP))
+                .addKeyValue("restaurant_ownership_validation_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.RESTAURANT_OWNERSHIP_VALIDATION))
+                .addKeyValue("subscription_validation_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.SUBSCRIPTION_VALIDATION))
+                .addKeyValue("service_ownership_validation_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.SERVICE_OWNERSHIP_VALIDATION))
+                .addKeyValue("pending_notification_query_ms",
+                        stageMillis(measurement, DashboardRequestMeasurements.Measurement.Stage.PENDING_NOTIFICATION_QUERY))
                 .addKeyValue("hikari_active", pool == null ? -1 : pool.getActiveConnections())
                 .addKeyValue("hikari_idle", pool == null ? -1 : pool.getIdleConnections())
                 .addKeyValue("hikari_pending",
@@ -244,6 +337,51 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
             timer.publishPercentiles(0.5, 0.95, 0.99);
         }
         timer.register(meterRegistry).record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    private void recordStageTimers(
+            String route,
+            int status,
+            DashboardRequestMeasurements.Measurement measurement) {
+        for (DashboardRequestMeasurements.Measurement.Stage stage
+                : DashboardRequestMeasurements.Measurement.Stage.values()) {
+            long nanos = measurement.getStageNanos(stage);
+            if (nanos >= 0) {
+                Timer.builder("texos.dashboard.stage.duration")
+                        .tag("route", route)
+                        .tag("stage", stage.metricName())
+                        .tag("status", Integer.toString(status))
+                        .register(meterRegistry)
+                        .record(nanos, TimeUnit.NANOSECONDS);
+            }
+        }
+    }
+
+    private void recordStageTimers(
+            String endpointType,
+            int status,
+            String outcome,
+            DashboardRequestMeasurements.Measurement measurement) {
+        for (DashboardRequestMeasurements.Measurement.Stage stage
+                : DashboardRequestMeasurements.Measurement.Stage.values()) {
+            long nanos = measurement.getStageNanos(stage);
+            if (nanos >= 0) {
+                Timer.builder("texos.api.stage.duration")
+                        .tag("endpoint_type", endpointType)
+                        .tag("stage", stage.metricName())
+                        .tag("status", Integer.toString(status))
+                        .tag("outcome", outcome)
+                        .register(meterRegistry)
+                        .record(nanos, TimeUnit.NANOSECONDS);
+            }
+        }
+    }
+
+    private static double stageMillis(
+            DashboardRequestMeasurements.Measurement measurement,
+            DashboardRequestMeasurements.Measurement.Stage stage) {
+        long nanos = measurement.getStageNanos(stage);
+        return nanos < 0 ? -1 : millis(nanos);
     }
 
     private void registerPoolGauges() {
@@ -297,6 +435,11 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
 
     private static boolean isDashboardRoute(String route) {
         return route.startsWith("/api/restaurants/{restaurantId}/dashboard/");
+    }
+
+    private static boolean isOrderDashboardRoute(String route) {
+        return route.endsWith("/dashboard/recent-orders")
+                || route.endsWith("/dashboard/active-orders");
     }
 
     private static String endpointType(String route) {
