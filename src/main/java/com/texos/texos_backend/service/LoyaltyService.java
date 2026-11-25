@@ -106,9 +106,9 @@ public class LoyaltyService {
    throw new IllegalArgumentException("History page must be non-negative and page size must be between 1 and 100");
   if(from==null&&to==null) {
    if(paginated) {
-    int pageSize=historySize;
+    int pageSize=java.util.Objects.requireNonNull(historySize);
     List<LoyaltyTransactionSummary> result=transactions.findCustomerSummaries(
-        restaurantId,customerId,PageRequest.of(historyPage,pageSize+1));
+        restaurantId,customerId,PageRequest.of(java.util.Objects.requireNonNull(historyPage),pageSize+1));
     boolean hasMore=result.size()>pageSize;
     if(hasMore)result=result.subList(0,pageSize);
     return new CustomerHistory(result,hasMore);
@@ -123,9 +123,9 @@ public class LoyaltyService {
   LocalDateTime toTime=end.plusDays(1).atStartOfDay().minusNanos(1);
   if(!paginated)
    return new CustomerHistory(transactions.findCustomerSummariesBetween(restaurantId,customerId,fromTime,toTime),false);
-  int pageSize=historySize;
+    int pageSize=java.util.Objects.requireNonNull(historySize);
   List<LoyaltyTransactionSummary> result=transactions.findCustomerSummariesBetween(
-      restaurantId,customerId,fromTime,toTime,PageRequest.of(historyPage,pageSize+1));
+            restaurantId,customerId,fromTime,toTime,PageRequest.of(java.util.Objects.requireNonNull(historyPage),pageSize+1));
   boolean hasMore=result.size()>pageSize;
   if(hasMore)result=result.subList(0,pageSize);
   return new CustomerHistory(result,hasMore);
