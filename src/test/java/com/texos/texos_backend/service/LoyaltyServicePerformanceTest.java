@@ -17,6 +17,7 @@ import com.texos.texos_backend.dto.LoyaltyRedemptionSummary;
 import com.texos.texos_backend.dto.LoyaltyTransactionOverview;
 import com.texos.texos_backend.dto.LoyaltyTransactionSummary;
 import com.texos.texos_backend.entity.Customer;
+import com.texos.texos_backend.entity.LoyaltyAccount;
 import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.entity.RestaurantTable;
@@ -154,7 +155,7 @@ class LoyaltyServicePerformanceTest {
     }
 
     @Test
-    void customerHistoryPaginationReturnsHasMoreWithoutDroppingRows() {
+    void customerStatusExpiresPointLotsAndPaginatesHistory() {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(RESTAURANT_ID);
         restaurant.setRestaurantName("Restaurant");
@@ -164,6 +165,12 @@ class LoyaltyServicePerformanceTest {
         customer.setId(55L);
         customer.setCustomerName("Customer");
         customer.setMobileNumber("1234567890");
+        LoyaltyAccount account = new LoyaltyAccount();
+        account.setId(99L);
+        account.setAvailablePoints(30L);
+        account.setLifetimeEarnedPoints(50L);
+        account.setLifetimeRedeemedPoints(20L);
+        account.setPointsDebt(0L);
         LocalDateTime createdAt = LocalDateTime.of(2026, 1, 2, 10, 0);
 
         when(tables.findByQrTokenAndActiveTrue("qr-token")).thenReturn(Optional.of(table));
@@ -171,6 +178,9 @@ class LoyaltyServicePerformanceTest {
                 .thenReturn(new CustomerSession(55L, RESTAURANT_ID));
         when(customers.findByIdAndRestaurant_Id(55L, RESTAURANT_ID))
                 .thenReturn(Optional.of(customer));
+        when(accounts.findByRestaurant_IdAndCustomer_Id(RESTAURANT_ID, 55L))
+                .thenReturn(Optional.of(account));
+        when(pointLots.lockExpiredLots(eq(99L), any(LocalDateTime.class))).thenReturn(List.of());
         when(transactions.findCustomerSummariesBetween(
                 eq(RESTAURANT_ID), eq(55L), any(LocalDateTime.class), any(LocalDateTime.class),
                 any(Pageable.class)))
@@ -184,6 +194,8 @@ class LoyaltyServicePerformanceTest {
 
         assertEquals(2, ((List<?>) result.get("transactions")).size());
         assertTrue((Boolean) result.get("transactionsHasMore"));
+        assertEquals(30L, result.get("availablePoints"));
+        verify(pointLots).lockExpiredLots(eq(99L), any(LocalDateTime.class));
         verify(transactions).findCustomerSummariesBetween(
                 eq(RESTAURANT_ID), eq(55L), any(LocalDateTime.class), any(LocalDateTime.class),
                 argThat(pageable -> pageable.getPageSize() == 3 && pageable.getPageNumber() == 0));
