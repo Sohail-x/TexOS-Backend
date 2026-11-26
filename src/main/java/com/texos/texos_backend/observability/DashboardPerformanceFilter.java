@@ -556,6 +556,11 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         return switch (route) {
             case NOTIFICATION_NEXT_ROUTE -> "payment_notification_next";
             case "/api/announcements/active" -> "announcement_active";
+            case "/api/public/menu/{qrToken}" -> "public_menu";
+            case "/api/restaurants/{restaurantId}/orders" -> "owner_orders";
+            case "/api/restaurants/{restaurantId}/kitchen/orders" -> "owner_kitchen_orders";
+            case "/api/kitchen-staff/orders" -> "kitchen_staff_orders";
+            case "/api/order-approval/staff/orders" -> "order_approval_staff_orders";
             case "/api/auth/me" -> "auth_me";
             case "/api/subscriptions/status" -> "subscription_status";
             case "/api/restaurants/{restaurantId}/loyalty/overview" -> "owner_loyalty_overview";
@@ -584,13 +589,26 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         if ("GET".equalsIgnoreCase(method)
                 && ("/api/announcements/active".equals(path)
                 || "/api/auth/me".equals(path)
-                || "/api/subscriptions/status".equals(path))) {
+                || "/api/subscriptions/status".equals(path)
+                || "/api/kitchen-staff/orders".equals(path)
+                || "/api/order-approval/staff/orders".equals(path))) {
             return path;
+        }
+        if ("GET".equalsIgnoreCase(method) && path.startsWith("/api/public/menu/")
+                && path.indexOf('/', "/api/public/menu/".length()) < 0) {
+            return "/api/public/menu/{qrToken}";
         }
 
         String[] parts = path.split("/");
         if (parts.length >= 5 && "api".equals(parts[1])
                 && "restaurants".equals(parts[2]) && parts[3].matches("\\d+")) {
+            if (parts.length == 5 && "GET".equalsIgnoreCase(method) && "orders".equals(parts[4])) {
+                return "/api/restaurants/{restaurantId}/orders";
+            }
+            if (parts.length == 6 && "GET".equalsIgnoreCase(method)
+                    && "kitchen".equals(parts[4]) && "orders".equals(parts[5])) {
+                return "/api/restaurants/{restaurantId}/kitchen/orders";
+            }
             if (parts.length == 6 && "GET".equalsIgnoreCase(method)
                     && "dashboard".equals(parts[4])) {
                 return switch (parts[5]) {

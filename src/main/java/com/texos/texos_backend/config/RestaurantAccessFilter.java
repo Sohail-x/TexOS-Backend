@@ -134,7 +134,7 @@ public class RestaurantAccessFilter extends OncePerRequestFilter {
         long ownershipStartedAtNanos = DashboardRequestMeasurements.startStage();
         boolean restaurantOwned;
         try {
-            restaurantOwned = restaurantRepository.findByIdAndOwnerId(restaurantId, ownerId).isPresent();
+            restaurantOwned = restaurantRepository.existsByIdAndOwnerId(restaurantId, ownerId);
         } finally {
             DashboardRequestMeasurements.recordStageDuration(
                     Stage.RESTAURANT_OWNERSHIP_VALIDATION, ownershipStartedAtNanos);

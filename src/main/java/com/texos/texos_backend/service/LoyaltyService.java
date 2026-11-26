@@ -13,7 +13,10 @@ import com.texos.texos_backend.observability.DashboardRequestMeasurements.Measur
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
+import com.texos.texos_backend.config.AuthenticatedOwnerPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -45,6 +48,10 @@ public class LoyaltyService {
  private Restaurant ownedRestaurant(Long id) {
   long ownershipStartedAtNanos=DashboardRequestMeasurements.startStage();
   try {
+   if(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs
+       && attrs.getRequest().getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE) instanceof AuthenticatedOwnerPrincipal) {
+    return restaurants.getReferenceById(id);
+   }
    String principal=SecurityContextHolder.getContext().getAuthentication()==null?null:SecurityContextHolder.getContext().getAuthentication().getName();
    Owner owner=measureRepositoryOperation(Stage.SERVICE_OWNER_REPOSITORY,()->owners.findByEmail(principal==null?"":principal.trim().toLowerCase()).or(()->owners.findByPhone(principal)).orElseThrow(()->new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED)));
    return measureRepositoryOperation(Stage.SERVICE_RESTAURANT_REPOSITORY,()->restaurants.findByIdAndOwnerId(id,owner.getId()).orElseThrow(()->new ResourceNotFoundException("Restaurant not found")));
@@ -99,9 +106,9 @@ public class LoyaltyService {
    throw new IllegalArgumentException("History page must be non-negative and page size must be between 1 and 100");
   if(from==null&&to==null) {
    if(paginated) {
-    int pageSize=historySize;
+    int pageSize=java.util.Objects.requireNonNull(historySize);
     List<LoyaltyTransactionSummary> result=transactions.findCustomerSummaries(
-        restaurantId,customerId,PageRequest.of(historyPage,pageSize+1));
+        restaurantId,customerId,PageRequest.of(java.util.Objects.requireNonNull(historyPage),pageSize+1));
     boolean hasMore=result.size()>pageSize;
     if(hasMore)result=result.subList(0,pageSize);
     return new CustomerHistory(result,hasMore);
@@ -116,9 +123,9 @@ public class LoyaltyService {
   LocalDateTime toTime=end.plusDays(1).atStartOfDay().minusNanos(1);
   if(!paginated)
    return new CustomerHistory(transactions.findCustomerSummariesBetween(restaurantId,customerId,fromTime,toTime),false);
-  int pageSize=historySize;
+    int pageSize=java.util.Objects.requireNonNull(historySize);
   List<LoyaltyTransactionSummary> result=transactions.findCustomerSummariesBetween(
-      restaurantId,customerId,fromTime,toTime,PageRequest.of(historyPage,pageSize+1));
+            restaurantId,customerId,fromTime,toTime,PageRequest.of(java.util.Objects.requireNonNull(historyPage),pageSize+1));
   boolean hasMore=result.size()>pageSize;
   if(hasMore)result=result.subList(0,pageSize);
   return new CustomerHistory(result,hasMore);

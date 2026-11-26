@@ -1,4 +1,3 @@
-
 package com.texos.texos_backend.repository;
 
 import com.texos.texos_backend.entity.MenuItem;
@@ -13,7 +12,16 @@ import org.springframework.data.repository.query.Param;
 
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
-    List<MenuItem> findAllByCategoryIdOrderByDisplayOrderAsc(Long categoryId);
+    @Query("""
+        SELECT item
+        FROM MenuItem item
+        JOIN FETCH item.category category
+        WHERE category.id = :categoryId
+        ORDER BY item.displayOrder ASC
+    """)
+    List<MenuItem> findAllByCategoryIdOrderByDisplayOrderAsc(
+            @Param("categoryId") Long categoryId
+    );
 
     List<MenuItem> findAllByCategoryIdAndAvailableTrueOrderByDisplayOrderAsc(
             Long categoryId
@@ -42,15 +50,26 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
             @Param("itemIds") Collection<Long> itemIds
     );
 
-    Optional<MenuItem> findByIdAndCategoryId(Long id, Long categoryId);
+    @Query("""
+        SELECT item
+        FROM MenuItem item
+        JOIN FETCH item.category category
+        WHERE item.id = :id
+          AND category.id = :categoryId
+    """)
+    Optional<MenuItem> findByIdAndCategoryId(
+            @Param("id") Long id,
+            @Param("categoryId") Long categoryId
+    );
 
     boolean existsByCategoryId(Long categoryId);
 
     @Query("""
         SELECT item
         FROM MenuItem item
-        WHERE item.category.restaurant.id = :restaurantId
-        ORDER BY item.category.displayOrder ASC, item.displayOrder ASC
+        JOIN FETCH item.category category
+        WHERE category.restaurant.id = :restaurantId
+        ORDER BY category.displayOrder ASC, item.displayOrder ASC
     """)
     List<MenuItem> findAllByRestaurantId(
             @Param("restaurantId") Long restaurantId

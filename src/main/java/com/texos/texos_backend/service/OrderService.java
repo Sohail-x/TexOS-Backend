@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -280,11 +281,24 @@ order.setPaymentStatus(PaymentStatus.PENDING);
                             order.getOrderNumber(), order));
         }
 
-        return accessibleOrders.values().stream()
+        if (accessibleOrders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> sortedIds = accessibleOrders.values().stream()
                 .sorted((first, second) ->
                         second.getCreatedAt().compareTo(first.getCreatedAt()))
-                .map(this::mapToResponse)
+                .limit(50)
+                .map(RestaurantOrder::getId)
                 .toList();
+        Map<Long, RestaurantOrder> detailedById = new LinkedHashMap<>();
+        for (RestaurantOrder detailed : orderRepository.findAllWithItemsRestaurantAndTableByIdIn(sortedIds)) {
+            detailedById.put(detailed.getId(), detailed);
+        }
+        List<RestaurantOrder> orderedDetails = sortedIds.stream()
+                .map(detailedById::get)
+                .filter(Objects::nonNull)
+                .toList();
+        return mapOwnerOrdersWithBills(orderedDetails);
     }
 
     @Transactional(readOnly = true)
@@ -320,6 +334,28 @@ order.setPaymentStatus(PaymentStatus.PENDING);
                 restaurantId,
                 List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED));
         return mapOwnerOrdersWithBills(orders);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersForOwner(Long restaurantId, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(Math.max(1, size), 200);
+        List<Long> orderIds = orderRepository.findOwnerOrderIdsPage(
+                restaurantId,
+                List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED),
+                PageRequest.of(safePage, safeSize));
+        if (orderIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, RestaurantOrder> byId = new LinkedHashMap<>();
+        for (RestaurantOrder order : orderRepository.findAllWithItemsRestaurantAndTableByIdIn(orderIds)) {
+            byId.put(order.getId(), order);
+        }
+        List<RestaurantOrder> ordered = orderIds.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .toList();
+        return mapOwnerOrdersWithBills(ordered);
     }
 
     @Transactional(readOnly = true)
@@ -479,6 +515,11 @@ public OrderResponse updatePaymentStatus(
 
         public OrderResponse toResponse(RestaurantOrder order) {
         return mapToResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderResponse> toResponses(List<RestaurantOrder> orders) {
+        return mapOwnerOrdersWithBills(orders);
     }
 
     private OrderResponse mapToResponse(RestaurantOrder order) {

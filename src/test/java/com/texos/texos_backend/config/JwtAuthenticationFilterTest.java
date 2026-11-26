@@ -14,9 +14,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.texos.texos_backend.entity.Owner;
-import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.repository.OwnerRepository;
+import com.texos.texos_backend.repository.OwnerRepository.OwnerAuthView;
 import com.texos.texos_backend.repository.RestaurantRepository;
 import com.texos.texos_backend.service.AdminCredentials;
 import com.texos.texos_backend.service.JwtService;
@@ -42,16 +41,15 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void ownerPrincipalIsRequestScopedAndReusedByRestaurantAccessFilter() throws Exception {
-        Owner owner = owner(7L, "owner@example.com", "5550001", true, 3);
+        OwnerAuthView owner = owner(7L, "owner@example.com", "5550001", true, 3);
         OwnerRepository ownerRepository = mock(OwnerRepository.class);
         RestaurantRepository restaurantRepository = mock(RestaurantRepository.class);
         SubscriptionService subscriptionService = mock(SubscriptionService.class);
         AdminCredentials adminCredentials = mock(AdminCredentials.class);
         JwtService jwtService = spy(new JwtService(JWT_SECRET));
         String token = jwtService.generateToken(owner.getEmail(), owner.getTokenVersion());
-        when(ownerRepository.findByEmail(owner.getEmail())).thenReturn(Optional.of(owner));
-        when(restaurantRepository.findByIdAndOwnerId(42L, owner.getId()))
-                .thenReturn(Optional.of(new Restaurant()));
+        when(ownerRepository.findAuthViewByIdentity(owner.getEmail())).thenReturn(Optional.of(owner));
+        when(restaurantRepository.existsByIdAndOwnerId(42L, owner.getId())).thenReturn(true);
         when(subscriptionService.hasValidSubscription(42L)).thenReturn(true);
 
         MockHttpServletRequest request = dashboardRequest(42L, token);
@@ -68,17 +66,16 @@ class JwtAuthenticationFilterTest {
                 AuthenticatedOwnerPrincipal.class,
                 request.getAttribute(AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE));
         assertEquals(owner.getId(), principal.ownerId());
-        assertEquals(owner.getEmail(), principal.ownerSnapshot().email());
-        assertEquals(owner.isActive(), principal.ownerSnapshot().active());
 
         MockHttpServletResponse accessResponse = new MockHttpServletResponse();
         new RestaurantAccessFilter(ownerRepository, restaurantRepository, subscriptionService)
                 .doFilter(request, accessResponse, new MockFilterChain());
 
         assertEquals(200, accessResponse.getStatus());
-        verify(ownerRepository, times(1)).findByEmail(owner.getEmail());
+        verify(ownerRepository, times(1)).findAuthViewByIdentity(owner.getEmail());
+        verify(ownerRepository, never()).findByEmail(anyString());
         verify(ownerRepository, never()).findByPhone(anyString());
-        verify(restaurantRepository).findByIdAndOwnerId(42L, owner.getId());
+        verify(restaurantRepository).existsByIdAndOwnerId(42L, owner.getId());
         verify(subscriptionService).hasValidSubscription(42L);
         verify(jwtService, times(1)).parseAuthenticationToken(token);
         verify(jwtService, never()).extractEmail(token);
@@ -88,16 +85,14 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void phoneOnlyOwnerLookupIsNotRepeatedByRestaurantAccessFilter() throws Exception {
-        Owner owner = owner(8L, null, "5550002", true, 1);
+        OwnerAuthView owner = owner(8L, null, "5550002", true, 1);
         OwnerRepository ownerRepository = mock(OwnerRepository.class);
         RestaurantRepository restaurantRepository = mock(RestaurantRepository.class);
         SubscriptionService subscriptionService = mock(SubscriptionService.class);
         JwtService jwtService = spy(new JwtService(JWT_SECRET));
         String token = jwtService.generateToken(owner.getPhone(), owner.getTokenVersion());
-        when(ownerRepository.findByEmail(owner.getPhone())).thenReturn(Optional.empty());
-        when(ownerRepository.findByPhone(owner.getPhone())).thenReturn(Optional.of(owner));
-        when(restaurantRepository.findByIdAndOwnerId(42L, owner.getId()))
-                .thenReturn(Optional.of(new Restaurant()));
+        when(ownerRepository.findAuthViewByIdentity(owner.getPhone())).thenReturn(Optional.of(owner));
+        when(restaurantRepository.existsByIdAndOwnerId(42L, owner.getId())).thenReturn(true);
         when(subscriptionService.hasValidSubscription(42L)).thenReturn(true);
 
         MockHttpServletRequest request = dashboardRequest(42L, token);
@@ -106,19 +101,20 @@ class JwtAuthenticationFilterTest {
         new RestaurantAccessFilter(ownerRepository, restaurantRepository, subscriptionService)
                 .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
 
-        verify(ownerRepository, times(1)).findByEmail(owner.getPhone());
-        verify(ownerRepository, times(1)).findByPhone(owner.getPhone());
-        verify(restaurantRepository).findByIdAndOwnerId(42L, owner.getId());
+        verify(ownerRepository, times(1)).findAuthViewByIdentity(owner.getPhone());
+        verify(ownerRepository, never()).findByEmail(anyString());
+        verify(ownerRepository, never()).findByPhone(anyString());
+        verify(restaurantRepository).existsByIdAndOwnerId(42L, owner.getId());
         verify(jwtService, times(1)).parseAuthenticationToken(token);
     }
 
     @Test
     void inactiveOwnerIsNotAuthenticatedOrGivenRequestPrincipal() throws Exception {
-        Owner owner = owner(9L, "inactive@example.com", null, false, 2);
+        OwnerAuthView owner = owner(9L, "inactive@example.com", null, false, 2);
         OwnerRepository ownerRepository = mock(OwnerRepository.class);
         JwtService jwtService = spy(new JwtService(JWT_SECRET));
         String token = jwtService.generateToken(owner.getEmail(), owner.getTokenVersion());
-        when(ownerRepository.findByEmail(owner.getEmail())).thenReturn(Optional.of(owner));
+        when(ownerRepository.findAuthViewByIdentity(owner.getEmail())).thenReturn(Optional.of(owner));
         MockHttpServletRequest request = dashboardRequest(42L, token);
 
         new JwtAuthenticationFilter(jwtService, ownerRepository, mock(AdminCredentials.class))
@@ -134,11 +130,11 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void staleTokenVersionIsNotAuthenticatedOrGivenRequestPrincipal() throws Exception {
-        Owner owner = owner(10L, "versioned@example.com", null, true, 5);
+        OwnerAuthView owner = owner(10L, "versioned@example.com", null, true, 5);
         OwnerRepository ownerRepository = mock(OwnerRepository.class);
         JwtService jwtService = spy(new JwtService(JWT_SECRET));
         String token = jwtService.generateToken(owner.getEmail(), 4);
-        when(ownerRepository.findByEmail(owner.getEmail())).thenReturn(Optional.of(owner));
+        when(ownerRepository.findAuthViewByIdentity(owner.getEmail())).thenReturn(Optional.of(owner));
         MockHttpServletRequest request = dashboardRequest(42L, token);
 
         new JwtAuthenticationFilter(jwtService, ownerRepository, mock(AdminCredentials.class))
@@ -179,18 +175,18 @@ class JwtAuthenticationFilterTest {
         return request;
     }
 
-    private static Owner owner(
+    private static OwnerAuthView owner(
             Long id,
             String email,
             String phone,
             boolean active,
             int tokenVersion) {
-        Owner owner = new Owner();
-        owner.setId(id);
-        owner.setEmail(email);
-        owner.setPhone(phone);
-        owner.setActive(active);
-        owner.setTokenVersion(tokenVersion);
-        return owner;
+        return new OwnerAuthView() {
+            @Override public Long getId() { return id; }
+            @Override public String getEmail() { return email; }
+            @Override public String getPhone() { return phone; }
+            @Override public boolean isActive() { return active; }
+            @Override public int getTokenVersion() { return tokenVersion; }
+        };
     }
 }

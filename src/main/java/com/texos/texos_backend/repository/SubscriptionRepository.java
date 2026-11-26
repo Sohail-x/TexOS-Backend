@@ -30,6 +30,19 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
             @Param("statuses") List<SubscriptionStatus> statuses,
             Pageable pageable);
 
+    @Query("""
+            select case when count(subscription) > 0 then true else false end
+            from Subscription subscription
+            where subscription.restaurant.owner.id = :ownerId
+              and subscription.restaurant.active = true
+              and subscription.status in :statuses
+              and subscription.endDate > :now
+            """)
+    boolean existsValidSubscriptionForOwner(
+            @Param("ownerId") Long ownerId,
+            @Param("statuses") List<SubscriptionStatus> statuses,
+            @Param("now") LocalDateTime now);
+
     @Modifying
     @Query("update Subscription s set s.status = com.texos.texos_backend.entity.SubscriptionStatus.EXPIRED " +
             "where s.status in :statuses and s.endDate <= :now")

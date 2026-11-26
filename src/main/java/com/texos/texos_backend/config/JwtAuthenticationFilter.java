@@ -1,4 +1,3 @@
-
 package com.texos.texos_backend.config;
 
 import java.io.IOException;
@@ -10,8 +9,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.repository.OwnerRepository;
+import com.texos.texos_backend.repository.OwnerRepository.OwnerAuthView;
 import com.texos.texos_backend.service.JwtService;
 import com.texos.texos_backend.service.AdminCredentials;
 import com.texos.texos_backend.observability.DashboardRequestMeasurements;
@@ -74,11 +73,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
 
                 long ownerLookupStartedAtNanos = DashboardRequestMeasurements.startStage();
-                Owner owner;
+                OwnerAuthView owner;
                 try {
-                    owner = ownerRepository.findByEmail(email.trim().toLowerCase())
-                            .or(() -> ownerRepository.findByPhone(email))
-                            .orElse(null);
+                    owner = ownerRepository.findAuthViewByIdentity(email.trim().toLowerCase()).orElse(null);
                 } finally {
                     DashboardRequestMeasurements.recordStageDuration(
                             Stage.JWT_OWNER_LOOKUP, ownerLookupStartedAtNanos);
@@ -104,7 +101,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         .setAuthentication(authentication);
                     request.setAttribute(
                             AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE,
-                            AuthenticatedOwnerPrincipal.from(owner));
+                            new AuthenticatedOwnerPrincipal(owner.getId()));
                 }
             }
 

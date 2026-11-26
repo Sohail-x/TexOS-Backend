@@ -149,9 +149,9 @@ class OrderApprovalServiceTest {
             OrderApprovalSessionRepository sessionRepository =
                     mock(OrderApprovalSessionRepository.class);
             when(sessionRepository.findBySessionId(sessionId)).thenReturn(Optional.of(session));
-            when(accessCodeRepository.findByCodeHashAndSessionIdAndStatus(
+            when(accessCodeRepository.existsByCodeHashAndSessionIdAndStatus(
                     "current-token", sessionId, OrderApprovalCodeStatus.USED))
-                    .thenReturn(Optional.of(new OrderApprovalAccessCodeGrant()));
+                    .thenReturn(true);
             when(orderRepository.findByIdAndRestaurantIdForApproval(11L, 7L))
                     .thenReturn(Optional.of(order));
             when(orderRepository.save(order)).thenReturn(order);

@@ -294,8 +294,7 @@ public class SubscriptionService {
     }
 
     public boolean hasAnyValidSubscriptionForOwner(Long ownerId) {
-        return restaurantRepository.findAllByOwnerIdAndActiveTrue(ownerId).stream()
-                .anyMatch(restaurant -> hasValidSubscription(restaurant.getId()));
+        return subscriptionRepository.existsValidSubscriptionForOwner(ownerId, ENTITLED, utcNow());
     }
 
     @Scheduled(cron = "0 0 * * * *", zone = "UTC")

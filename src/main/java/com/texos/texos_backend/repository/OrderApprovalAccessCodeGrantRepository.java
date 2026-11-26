@@ -27,6 +27,9 @@ public interface OrderApprovalAccessCodeGrantRepository
     Optional<OrderApprovalAccessCodeGrant> findByCodeHashAndSessionIdAndStatus(
             String codeHash, UUID sessionId, OrderApprovalCodeStatus status);
 
+    boolean existsByCodeHashAndSessionIdAndStatus(
+            String codeHash, UUID sessionId, OrderApprovalCodeStatus status);
+
     boolean existsByCodeHash(String codeHash);
 
     @Modifying

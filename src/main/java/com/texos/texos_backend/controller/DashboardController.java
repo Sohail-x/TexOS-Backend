@@ -51,6 +51,13 @@ public class DashboardController {
     }
 
 
+    @GetMapping("/analytics")
+    public java.util.Map<String, Object> getAnalytics(
+            @PathVariable Long restaurantId,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "7") String period) {
+        return dashboardService.getAnalytics(restaurantId, period);
+    }
+
     @GetMapping("/active-orders")
     public List<OrderResponse> getActiveOrders(@PathVariable Long restaurantId) {
         long controllerStartedAtNanos = startControllerMethod();
