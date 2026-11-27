@@ -254,6 +254,9 @@ public class OrderApprovalService {
         order.setApprovalUpdatedAt(LocalDateTime.now());
         order.setApprovalSessionId(sessionId);
         RestaurantOrder saved = orderRepository.save(order);
+        if (!approve) {
+            billService.refreshBill(saved);
+        }
         loyaltyService.processOrderLifecycle(saved);
         OrderResponse response = orderService.toResponse(saved);
         if (approve) {

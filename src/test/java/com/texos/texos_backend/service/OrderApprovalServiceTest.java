@@ -55,7 +55,7 @@ class OrderApprovalServiceTest {
         assertEquals(OrderApprovalStatus.REJECTED, fixture.order.getApprovalStatus());
         assertEquals(OrderStatus.CANCELLED, fixture.order.getOrderStatus());
         verify(fixture.loyaltyService, times(1)).processOrderLifecycle(fixture.order);
-        verify(fixture.billService, never()).refreshBill(fixture.order);
+        verify(fixture.billService, times(1)).refreshBill(fixture.order);
         verify(fixture.messagingTemplate, never()).convertAndSend(
                 "/topic/restaurants/7/orders", fixture.response);
     }

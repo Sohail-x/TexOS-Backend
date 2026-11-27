@@ -190,9 +190,13 @@ public class CustomerBillService {
         List<com.texos.texos_backend.entity.OrderStatus> orderStatuses = new ArrayList<>();
         for (BillResponse bill : bills) {
             if (bill.getItems() != null) items.addAll(bill.getItems());
-            if (bill.getOrderId() != null) orderIds.add(bill.getOrderId());
-            if (bill.getOrderNumber() != null) orderNumbers.add(bill.getOrderNumber());
-            if (bill.getBillNumber() != null) billNumbers.add(bill.getBillNumber());
+            if (bill.getOrderIds() != null) orderIds.addAll(bill.getOrderIds());
+            else if (bill.getOrderId() != null) orderIds.add(bill.getOrderId());
+            if (bill.getOrderNumbers() != null) orderNumbers.addAll(bill.getOrderNumbers());
+            else if (bill.getOrderNumber() != null) orderNumbers.add(bill.getOrderNumber());
+            if (bill.getBillNumber() != null && !billNumbers.contains(bill.getBillNumber())) {
+                billNumbers.add(bill.getBillNumber());
+            }
             subtotal = add(subtotal, bill.getSubtotal());
             taxAmount = add(taxAmount, bill.getTaxAmount());
             serviceChargeAmount = add(serviceChargeAmount, bill.getServiceChargeAmount());

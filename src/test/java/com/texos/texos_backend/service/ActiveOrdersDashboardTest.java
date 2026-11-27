@@ -49,10 +49,11 @@ class ActiveOrdersDashboardTest {
         when(orderRepository.findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
                 42L, List.of(OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY)))
                 .thenReturn(List.of(newest, newest, pending, rejected, older));
-        when(billRepository.findAllByOrder_IdIn(List.of(1L, 4L)))
+        when(billRepository.findAllWithOrderDetailsByOrder_IdIn(List.of(1L, 4L)))
                 .thenReturn(List.of(bill(older), bill(newest)));
 
-        BillService billService = new BillService(billRepository, mock(OrderCalculationService.class));
+        BillService billService = new BillService(
+                billRepository, mock(OrderCalculationService.class), orderRepository);
         OrderService service = orderService(orderRepository, billRepository, billService);
 
         DashboardRequestMeasurements.Measurement measurement =
@@ -96,7 +97,7 @@ class ActiveOrdersDashboardTest {
 
         verify(orderRepository).findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
                 42L, List.of(OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY));
-        verify(billRepository).findAllByOrder_IdIn(List.of(1L, 4L));
+        verify(billRepository).findAllWithOrderDetailsByOrder_IdIn(List.of(1L, 4L));
         verifyNoMoreInteractions(orderRepository, billRepository);
     }
 
@@ -108,17 +109,18 @@ class ActiveOrdersDashboardTest {
         when(orderRepository.findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
                 42L, List.of(OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY)))
                 .thenReturn(List.of(order));
-        when(billRepository.findAllByOrder_IdIn(List.of(5L))).thenReturn(List.of());
+        when(billRepository.findAllWithOrderDetailsByOrder_IdIn(List.of(5L))).thenReturn(List.of());
 
         OrderService service = orderService(
                 orderRepository,
                 billRepository,
-                new BillService(billRepository, mock(OrderCalculationService.class)));
+                new BillService(
+                        billRepository, mock(OrderCalculationService.class), orderRepository));
 
         assertThrows(ResourceNotFoundException.class, () -> service.getActiveOrdersForOwner(42L));
         verify(orderRepository).findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
                 42L, List.of(OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY));
-        verify(billRepository).findAllByOrder_IdIn(List.of(5L));
+        verify(billRepository).findAllWithOrderDetailsByOrder_IdIn(List.of(5L));
         verify(billRepository, never()).findByOrderOrderNumber("missing-bill");
         verifyNoMoreInteractions(orderRepository, billRepository);
     }

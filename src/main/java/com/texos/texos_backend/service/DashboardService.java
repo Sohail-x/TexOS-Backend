@@ -203,22 +203,17 @@ public class DashboardService {
             for (RestaurantOrder o : orderRepository.findAllWithItemsRestaurantAndTableByIdIn(orderIds)) {
                 byId.put(o.getId(), o);
             }
-            Map<Long, Bill> billsByOrderId = new LinkedHashMap<>();
-            for (Bill b : billRepository.findAllByOrder_IdIn(orderIds)) {
-                billsByOrderId.put(b.getOrder().getId(), b);
-            }
             recentOrders = orderIds.stream()
                     .map(byId::get)
                     .filter(Objects::nonNull)
                     .map(o -> {
-                        Bill b = billsByOrderId.get(o.getId());
                         OrderResponse r = new OrderResponse();
                         r.setId(o.getId());
                         r.setOrderNumber(o.getOrderNumber());
                         r.setTableNumber(o.getTable() != null ? o.getTable().getTableNumber() : null);
                         r.setOrderStatus(o.getOrderStatus());
                         r.setPaymentStatus(o.getPaymentStatus());
-                        r.setTotalAmount(b != null ? b.getTotalAmount() : o.getTotalAmount());
+                        r.setTotalAmount(o.getTotalAmount());
                         r.setCreatedAt(o.getCreatedAt());
                         r.setItems(o.getItems().stream().map(item -> {
                             com.texos.texos_backend.dto.OrderItemResponse ir = new com.texos.texos_backend.dto.OrderItemResponse();

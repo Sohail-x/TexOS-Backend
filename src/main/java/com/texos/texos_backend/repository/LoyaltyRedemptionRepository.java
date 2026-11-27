@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Collection;
 public interface LoyaltyRedemptionRepository extends JpaRepository<LoyaltyRedemption,Long>{
  @Query("select new com.texos.texos_backend.dto.LoyaltyRedemptionSummary(" +
         "r.id, c.customerName, c.mobileNumber, rw.rewardName, r.pointsUsed, " +
@@ -22,4 +23,5 @@ public interface LoyaltyRedemptionRepository extends JpaRepository<LoyaltyRedemp
  @Query("select r from LoyaltyRedemption r where r.status='PENDING' and r.expiresAt is not null and r.expiresAt<=:now")
  List<LoyaltyRedemption> lockExpiredPendingReservations(@Param("now") LocalDateTime now);
  List<LoyaltyRedemption> findAllByOrder_IdAndStatus(Long orderId,String status);
+ List<LoyaltyRedemption> findAllByOrder_IdIn(Collection<Long> orderIds);
 }

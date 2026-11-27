@@ -42,7 +42,7 @@ class OwnerAndKitchenOrdersBulkLoadTest {
         when(orders.findAllOwnerOrdersWithDetails(
                 42L, List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED)))
                 .thenReturn(List.of(newest, older));
-        when(bills.findAllWithOrderByOrder_IdIn(List.of(1L, 2L)))
+        when(bills.findAllWithOrderDetailsByOrder_IdIn(List.of(1L, 2L)))
                 .thenReturn(List.of(bill(newest), bill(older)));
 
         List<OrderResponse> result = service(orders, bills).getOrdersForOwner(42L);
@@ -52,7 +52,7 @@ class OwnerAndKitchenOrdersBulkLoadTest {
         assertEquals("Tea", result.get(0).getBill().getItems().get(0).getItemName());
         verify(orders).findAllOwnerOrdersWithDetails(
                 42L, List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED));
-        verify(bills).findAllWithOrderByOrder_IdIn(List.of(1L, 2L));
+        verify(bills).findAllWithOrderDetailsByOrder_IdIn(List.of(1L, 2L));
         verifyNoMoreInteractions(orders, bills);
     }
 
@@ -86,7 +86,8 @@ class OwnerAndKitchenOrdersBulkLoadTest {
     private static OrderService service(
             RestaurantOrderRepository orders,
             BillRepository bills) {
-        BillService billService = new BillService(bills, mock(OrderCalculationService.class));
+        BillService billService = new BillService(
+                bills, mock(OrderCalculationService.class), orders);
         return new OrderService(
                 mock(RestaurantTableRepository.class),
                 mock(MenuItemRepository.class),

@@ -57,6 +57,7 @@ public class RestaurantPaymentService {
     private final PaymentReceiptRepository receiptRepository;
     private final OwnerRepository ownerRepository;
     private final LoyaltyService loyaltyService;
+    private final LoyaltyRedemptionRepository loyaltyRedemptionRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -558,9 +559,23 @@ public class RestaurantPaymentService {
                 .map(RestaurantOrder::getOrderNumber).toList();
         List<String> billNumbers = transaction.getOrders().stream()
                 .sorted(Comparator.comparing(RestaurantOrder::getCreatedAt))
-                .map(order -> billRepository.findByOrderOrderNumber(order.getOrderNumber())
-                        .map(Bill::getBillNumber).orElse(""))
-                .filter(number -> !number.isBlank()).toList();
+                .map(this::findBillNumber)
+                .filter(number -> !number.isBlank())
+                .distinct()
+                .toList();
+        List<Long> orderIds = transaction.getOrders().stream()
+                .map(RestaurantOrder::getId)
+                .toList();
+        List<LoyaltyRedemption> redemptions = loyaltyRedemptionRepository
+                .findAllByOrder_IdIn(orderIds);
+        int rewardPointsUsed = redemptions.stream()
+                .filter(this::isPaidRedemption)
+                .mapToInt(LoyaltyRedemption::getPointsUsed)
+                .sum();
+        BigDecimal rewardDiscountAmount = redemptions.stream()
+                .filter(this::isPaidRedemption)
+                .map(LoyaltyRedemption::getDiscountValue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         receipt.put("receiptNumber", "RCP/" + transaction.getId());
         receipt.put("restaurantName", restaurant.getRestaurantName());
         receipt.put("restaurantAddress", restaurant.getAddress());
@@ -573,6 +588,8 @@ public class RestaurantPaymentService {
         receipt.put("tableNumber", transaction.getTable().getTableNumber());
         receipt.put("items", items);
         receipt.put("totalAmount", transaction.getAmount());
+        receipt.put("rewardPointsUsed", rewardPointsUsed);
+        receipt.put("rewardDiscountAmount", rewardDiscountAmount);
         receipt.put("paymentMethod", transaction.getPaymentMethod());
         receipt.put("paymentReference", transaction.getPaymentReference());
         receipt.put("paymentDate", transaction.getPaidAt() == null
@@ -914,9 +931,7 @@ public class RestaurantPaymentService {
             result.put("customerName", nullToEmpty(assistance.getCustomerName()));
             result.put("customerMobile", nullToEmpty(assistance.getCustomerMobile()));
             result.put("orderNumber", assistance.getLatestOrder().getOrderNumber());
-            result.put("billNumber", billRepository
-                    .findByOrderOrderNumber(assistance.getLatestOrder().getOrderNumber())
-                    .map(Bill::getBillNumber).orElse(""));
+            result.put("billNumber", findBillNumber(assistance.getLatestOrder()));
             result.put("tableNumber", assistance.getTable().getTableNumber());
             result.put("requestedAt", assistance.getRequestedAt());
             return result;
@@ -932,9 +947,10 @@ public class RestaurantPaymentService {
                 .sorted(Comparator.comparing(RestaurantOrder::getCreatedAt))
                 .map(RestaurantOrder::getOrderNumber).toList());
         result.put("billNumbers", transaction.getOrders().stream()
-                .map(order -> billRepository.findByOrderOrderNumber(order.getOrderNumber())
-                        .map(Bill::getBillNumber).orElse(""))
-                .filter(value -> !value.isBlank()).toList());
+                .map(this::findBillNumber)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList());
         result.put("tableNumber", transaction.getTable().getTableNumber());
         result.put("amount", transaction.getAmount());
         result.put("paymentMethod", transaction.getPaymentMethod());
@@ -942,6 +958,20 @@ public class RestaurantPaymentService {
         result.put("paidAt", transaction.getPaidAt());
         result.put("paymentStatus", transaction.getPaymentStatus());
         return result;
+    }
+
+    private String findBillNumber(RestaurantOrder order) {
+        if (order.getOrderSessionKey() != null) {
+            return billRepository.findByOrderSessionKeyAndSupersededByBillIdIsNull(
+                    order.getOrderSessionKey()).map(Bill::getBillNumber).orElse("");
+        }
+        return billRepository.findByOrderOrderNumber(order.getOrderNumber())
+                .map(Bill::getBillNumber).orElse("");
+    }
+
+    private boolean isPaidRedemption(LoyaltyRedemption redemption) {
+        return "PENDING".equals(redemption.getStatus())
+                || "REDEEMED".equals(redemption.getStatus());
     }
 
     private void authorizeCustomerTransaction(

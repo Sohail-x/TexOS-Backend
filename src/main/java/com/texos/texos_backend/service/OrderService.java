@@ -403,14 +403,14 @@ order.setPaymentStatus(PaymentStatus.PENDING);
             return List.of();
         }
 
-        List<Long> orderIds = orders.stream()
-                .map(RestaurantOrder::getId)
-                .toList();
         Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
-        for (Bill bill : billRepository.findAllWithOrderByOrder_IdIn(orderIds)) {
-            billResponsesByOrderId.put(
-                    bill.getOrder().getId(),
-                    billService.mapToResponse(bill));
+        for (BillResponse billResponse : billService.getBillsForOrders(orders)) {
+            if (billResponse.getOrderIds() != null) {
+                billResponse.getOrderIds().forEach(orderId ->
+                        billResponsesByOrderId.put(orderId, billResponse));
+            } else if (billResponse.getOrderId() != null) {
+                billResponsesByOrderId.put(billResponse.getOrderId(), billResponse);
+            }
         }
 
         List<OrderResponse> responses = new ArrayList<>(orders.size());
@@ -475,6 +475,9 @@ public OrderResponse updateOrderStatus(
 
     RestaurantOrder savedOrder = orderRepository.save(order);
     loyaltyService.processOrderLifecycle(savedOrder);
+    if (newStatus == OrderStatus.CANCELLED) {
+        billService.refreshBill(savedOrder);
+    }
     OrderResponse response = mapToResponse(savedOrder);
 
 
@@ -606,12 +609,10 @@ public OrderResponse updatePaymentStatus(
                 return List.of();
             }
 
-            List<Long> orderIds = visibleOrders.stream()
-                    .map(RestaurantOrder::getId)
-                    .toList();
             long detailQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
             try {
-                orderRepository.findAllWithItemsRestaurantAndTableByIdIn(orderIds);
+                orderRepository.findAllWithItemsRestaurantAndTableByIdIn(
+                        visibleOrders.stream().map(RestaurantOrder::getId).toList());
             } finally {
                 DashboardRequestMeasurements.recordStageDuration(
                         DashboardRequestMeasurements.Measurement.Stage.RECENT_DETAIL_ORDER_REPOSITORY,
@@ -619,9 +620,9 @@ public OrderResponse updatePaymentStatus(
             }
 
             long billQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
-            List<Bill> bills;
+            List<BillResponse> bills;
             try {
-                bills = billRepository.findAllByOrder_IdIn(orderIds);
+                bills = billService.getBillsForOrders(visibleOrders);
             } finally {
                 DashboardRequestMeasurements.recordStageDuration(
                         DashboardRequestMeasurements.Measurement.Stage.RECENT_BILL_REPOSITORY,
@@ -630,23 +631,27 @@ public OrderResponse updatePaymentStatus(
 
             long mappingStartedAtNanos = DashboardRequestMeasurements.startStage();
             try {
-                Map<Long, Bill> billsByOrderId = new LinkedHashMap<>();
+                Map<Long, BillResponse> billsByOrderId = new LinkedHashMap<>();
                 long billItemCount = 0;
-                for (Bill bill : bills) {
-                    billsByOrderId.put(bill.getOrder().getId(), bill);
+                for (BillResponse billResponse : bills) {
+                    if (billResponse.getOrderIds() != null) {
+                        billResponse.getOrderIds().forEach(orderId ->
+                                billsByOrderId.put(orderId, billResponse));
+                    } else if (billResponse.getOrderId() != null) {
+                        billsByOrderId.put(billResponse.getOrderId(), billResponse);
+                    }
+                    billItemCount += billResponse.getItems() == null
+                            ? 0
+                            : billResponse.getItems().size();
                 }
 
                 List<OrderResponse> responses = new ArrayList<>(visibleOrders.size());
                 long itemCount = 0;
                 for (RestaurantOrder order : visibleOrders) {
-                    Bill bill = billsByOrderId.get(order.getId());
-                    if (bill == null) {
+                    BillResponse billResponse = billsByOrderId.get(order.getId());
+                    if (billResponse == null) {
                         throw new ResourceNotFoundException("Bill not found");
                     }
-                    var billResponse = billService.mapToResponse(bill);
-                    billItemCount += billResponse.getItems() == null
-                            ? 0
-                            : billResponse.getItems().size();
                     OrderResponse response = mapToResponse(order, billResponse);
                     itemCount += response.getItems() == null ? 0 : response.getItems().size();
                     responses.add(response);
@@ -694,11 +699,11 @@ public OrderResponse updatePaymentStatus(
                 return List.of();
             }
 
-            List<Long> orderIds = new ArrayList<>(visibleOrdersById.keySet());
+            List<RestaurantOrder> visibleOrders = new ArrayList<>(visibleOrdersById.values());
             long billsQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
-            List<Bill> bills;
+            List<BillResponse> bills;
             try {
-                bills = billRepository.findAllByOrder_IdIn(orderIds);
+                bills = billService.getBillsForOrders(visibleOrders);
             } finally {
                 DashboardRequestMeasurements.recordStageDuration(
                         DashboardRequestMeasurements.Measurement.Stage.ACTIVE_BILLS_REPOSITORY,
@@ -709,14 +714,16 @@ public OrderResponse updatePaymentStatus(
             try {
                 Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
                 long billItemCount = 0;
-                for (Bill bill : bills) {
-                    var billResponse = billService.mapToResponse(bill);
+                for (BillResponse billResponse : bills) {
+                    if (billResponse.getOrderIds() != null) {
+                        billResponse.getOrderIds().forEach(orderId ->
+                                billResponsesByOrderId.put(orderId, billResponse));
+                    } else if (billResponse.getOrderId() != null) {
+                        billResponsesByOrderId.put(billResponse.getOrderId(), billResponse);
+                    }
                     billItemCount += billResponse.getItems() == null
                             ? 0
                             : billResponse.getItems().size();
-                    billResponsesByOrderId.put(
-                            bill.getOrder().getId(),
-                            billResponse);
                 }
 
                 List<OrderResponse> responses = new ArrayList<>(visibleOrdersById.size());

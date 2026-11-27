@@ -74,7 +74,7 @@ class AdminComplianceServiceTest {
         when(loyaltyAccountRepository.findAllByCustomer_IdIn(
                 org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of(account));
-        when(billRepository.findAllByOrder_IdIn(
+        when(billRepository.findAllCanonicalBillsForOrderIds(
                 org.mockito.ArgumentMatchers.anyCollection())).thenReturn(List.of(bill));
 
         AdminComplianceReport result = service.search(new AdminComplianceSearchRequest(

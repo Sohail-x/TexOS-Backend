@@ -184,7 +184,7 @@ public class AdminComplianceService {
                 .collect(Collectors.toMap(RestaurantOrder::getId, Function.identity()));
         List<Bill> bills = orders.isEmpty()
                 ? List.of()
-                : billRepository.findAllByOrder_IdIn(orders.keySet());
+                : billRepository.findAllCanonicalBillsForOrderIds(orders.keySet());
         List<AdminComplianceReport.BillRecord> billRecords = bills.stream()
                 .sorted(Comparator.comparing(Bill::getCreatedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))

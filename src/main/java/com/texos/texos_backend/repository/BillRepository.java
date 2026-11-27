@@ -17,6 +17,27 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
 
     Optional<Bill> findByOrderOrderNumber(String orderNumber);
 
+    Optional<Bill> findByOrderSessionKeyAndSupersededByBillIdIsNull(String orderSessionKey);
+
+    Optional<Bill> findByOrderIdAndOrderRestaurantId(Long orderId, Long restaurantId);
+
+    List<Bill> findAllByOrderSessionKeyInAndSupersededByBillIdIsNull(
+            Collection<String> orderSessionKeys);
+
+    @Query("""
+            select distinct bill
+            from Bill bill
+            where bill.supersededByBillId is null
+              and (bill.order.id in :orderIds
+                   or bill.orderSessionKey in (
+                       select restaurantOrder.orderSessionKey
+                       from RestaurantOrder restaurantOrder
+                       where restaurantOrder.id in :orderIds
+                   ))
+            """)
+    List<Bill> findAllCanonicalBillsForOrderIds(
+            @Param("orderIds") Collection<Long> orderIds);
+
     @EntityGraph(attributePaths = {"order", "order.restaurant"})
     List<Bill> findAllByOrder_IdIn(Collection<Long> orderIds);
 
@@ -35,11 +56,6 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
             """)
     List<Bill> findAllWithOrderDetailsByOrder_IdIn(
             @Param("orderIds") Collection<Long> orderIds
-    );
-
-    Optional<Bill> findByOrderIdAndOrderRestaurantId(
-            Long orderId,
-            Long restaurantId
     );
 
     boolean existsByBillNumber(String billNumber);

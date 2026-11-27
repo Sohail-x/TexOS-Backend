@@ -27,6 +27,12 @@ public class Bill {
     @JoinColumn(name = "order_id", nullable = false, unique = true)
     private RestaurantOrder order;
 
+    @Column(name = "order_session_key", length = 36, unique = true)
+    private String orderSessionKey;
+
+    @Column(name = "superseded_by_bill_id")
+    private Long supersededByBillId;
+
     @Column(nullable = false)
     private Integer billVersion = 1;
 

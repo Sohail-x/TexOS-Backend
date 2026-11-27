@@ -11,7 +11,9 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.texos.texos_backend.dto.BillResponse;
+import com.texos.texos_backend.entity.Bill;
 import com.texos.texos_backend.entity.CustomerPaymentTransaction;
+import com.texos.texos_backend.entity.LoyaltyRedemption;
 import com.texos.texos_backend.entity.OfflineAssistanceRequest;
 import com.texos.texos_backend.entity.OrderApprovalStatus;
 import com.texos.texos_backend.entity.OrderItem;
@@ -31,6 +33,7 @@ import com.texos.texos_backend.repository.PaymentAttemptRepository;
 import com.texos.texos_backend.repository.PaymentAuditLogRepository;
 import com.texos.texos_backend.repository.PaymentReceiptRepository;
 import com.texos.texos_backend.repository.PhonePeWebhookEventRepository;
+import com.texos.texos_backend.repository.LoyaltyRedemptionRepository;
 import com.texos.texos_backend.repository.RestaurantOrderRepository;
 import com.texos.texos_backend.repository.RestaurantPaymentNotificationRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
@@ -71,6 +74,7 @@ class RestaurantPaymentServiceRegressionTest {
     @Mock private PaymentReceiptRepository receiptRepository;
     @Mock private OwnerRepository ownerRepository;
     @Mock private LoyaltyService loyaltyService;
+    @Mock private LoyaltyRedemptionRepository loyaltyRedemptionRepository;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
 
@@ -154,6 +158,7 @@ class RestaurantPaymentServiceRegressionTest {
         RestaurantOrder order = new RestaurantOrder();
         order.setId(12L);
         order.setOrderNumber("TX-#104");
+        order.setOrderSessionKey("sitting-1");
         order.setRestaurant(restaurant);
         order.setTable(table);
         order.setOrderStatus(OrderStatus.NEW);
@@ -168,14 +173,34 @@ class RestaurantPaymentServiceRegressionTest {
         item.setUnitPrice(new BigDecimal("25.00"));
         item.setLineTotal(new BigDecimal("25.00"));
         order.setItems(List.of(item));
+        RestaurantOrder secondOrder = new RestaurantOrder();
+        secondOrder.setId(13L);
+        secondOrder.setOrderNumber("TX-#105");
+        secondOrder.setOrderSessionKey("sitting-1");
+        secondOrder.setRestaurant(restaurant);
+        secondOrder.setTable(table);
+        secondOrder.setOrderStatus(OrderStatus.NEW);
+        secondOrder.setApprovalStatus(OrderApprovalStatus.NOT_REQUIRED);
+        secondOrder.setPaymentStatus(PaymentStatus.PENDING);
+        secondOrder.setTotalAmount(new BigDecimal("10.00"));
+        secondOrder.setCreatedAt(order.getCreatedAt().plusMinutes(1));
+        OrderItem secondItem = new OrderItem();
+        secondItem.setOrder(secondOrder);
+        secondItem.setItemName("Ice cream");
+        secondItem.setQuantity(1);
+        secondItem.setUnitPrice(new BigDecimal("10.00"));
+        secondItem.setLineTotal(new BigDecimal("10.00"));
+        secondOrder.setItems(List.of(secondItem));
         BillResponse bill = new BillResponse();
-        bill.setOrderIds(List.of(12L));
+        bill.setOrderIds(List.of(12L, 13L));
 
         when(restaurantRepository.findByIdAndOwnerId(4L, 6L)).thenReturn(Optional.of(restaurant));
         when(customerBillService.getBillForOwner(4L, 12L)).thenReturn(bill);
         when(orderRepository.findByIdAndRestaurantIdForUpdate(12L, 4L))
                 .thenReturn(Optional.of(order));
-        when(transactionRepository.findByRestaurantAndActiveKeyForUpdate(4L, "4:12"))
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(13L, 4L))
+                .thenReturn(Optional.of(secondOrder));
+        when(transactionRepository.findByRestaurantAndActiveKeyForUpdate(4L, "4:sitting-1"))
                 .thenReturn(Optional.empty());
         when(transactionRepository.saveAndFlush(any(CustomerPaymentTransaction.class)))
                 .thenAnswer(invocation -> {
@@ -184,7 +209,16 @@ class RestaurantPaymentServiceRegressionTest {
                     return transaction;
                 });
         when(receiptRepository.findByPaymentTransaction_Id(31L)).thenReturn(Optional.empty());
-        when(billRepository.findByOrderOrderNumber("TX-#104")).thenReturn(Optional.empty());
+                Bill canonicalBill = new Bill();
+                canonicalBill.setBillNumber("INV/12");
+                when(billRepository.findByOrderSessionKeyAndSupersededByBillIdIsNull("sitting-1"))
+                        .thenReturn(Optional.of(canonicalBill));
+        LoyaltyRedemption redemption = new LoyaltyRedemption();
+        redemption.setPointsUsed(50);
+        redemption.setDiscountValue(new BigDecimal("25.00"));
+        redemption.setStatus("PENDING");
+        when(loyaltyRedemptionRepository.findAllByOrder_IdIn(List.of(12L, 13L)))
+                .thenReturn(List.of(redemption));
 
         Map<String, Object> result = service.recordOfflinePayment(4L, 12L, 6L, "CASH");
 
@@ -194,6 +228,10 @@ class RestaurantPaymentServiceRegressionTest {
         String receiptJson = receipt.getValue().getReceiptJson();
         assertTrue(receiptJson.contains("\"paymentDate\":\""));
         assertTrue(receiptJson.contains("Z\""));
+        assertTrue(receiptJson.contains("\"rewardPointsUsed\":50"));
+        assertTrue(receiptJson.contains("\"rewardDiscountAmount\":25.00"));
+        assertTrue(receiptJson.contains("\"billNumbers\":[\"INV/12\"]"));
+        assertTrue(receiptJson.contains("\"orderNumbers\":[\"TX-#104\",\"TX-#105\"]"));
         assertEquals(31L, result.get("transactionId"));
     }
 

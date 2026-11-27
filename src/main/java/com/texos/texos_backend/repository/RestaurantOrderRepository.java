@@ -134,6 +134,11 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
             Long tableId,
             String orderSessionKey);
 
+    @EntityGraph(attributePaths = {"items", "items.menuItem", "restaurant", "table"})
+    List<RestaurantOrder> findAllByRestaurant_IdAndOrderSessionKeyInOrderByCreatedAtAsc(
+            Long restaurantId,
+            Collection<String> orderSessionKeys);
+
     List<RestaurantOrder> findAllByRestaurant_IdAndApprovalStatusOrderByCreatedAtAsc(
                 Long restaurantId, OrderApprovalStatus approvalStatus);
 
