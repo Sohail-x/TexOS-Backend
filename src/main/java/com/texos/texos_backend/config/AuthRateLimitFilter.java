@@ -38,11 +38,12 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
             Map.entry("/api/auth/reset-password", new RateLimitPolicy(5, FIFTEEN_MINUTES)),
             Map.entry("/api/admin/auth/login", new RateLimitPolicy(10, FIFTEEN_MINUTES)),
             Map.entry("/api/owners/register", new RateLimitPolicy(5, ONE_HOUR)),
-            Map.entry("/api/public/customers/login", new RateLimitPolicy(100, FIFTEEN_MINUTES)),
-            Map.entry("/api/public/customers/register", new RateLimitPolicy(100, ONE_HOUR)),
+            Map.entry("/api/public/customers/login", new RateLimitPolicy(25, FIFTEEN_MINUTES)),
+            Map.entry("/api/public/customers/register", new RateLimitPolicy(25, ONE_HOUR)),
             Map.entry("/api/kitchen-staff/verify", new RateLimitPolicy(10, FIFTEEN_MINUTES)),
             Map.entry("/api/public/order-approval/verify", new RateLimitPolicy(10, FIFTEEN_MINUTES)),
             Map.entry("/api/public/order-approval/access", new RateLimitPolicy(10, FIFTEEN_MINUTES)),
+            Map.entry("/api/public/customers/forgot-password", new RateLimitPolicy(7, FIFTEEN_MINUTES)),
             Map.entry(CONTACT_PATH, new RateLimitPolicy(5, FIFTEEN_MINUTES)));
 
     private final JdbcTemplate jdbcTemplate;
