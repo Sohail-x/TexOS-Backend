@@ -1,6 +1,7 @@
 package com.texos.texos_backend.repository;
 
 import com.texos.texos_backend.entity.MenuItem;
+import com.texos.texos_backend.dto.PublicMenuItemView;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -37,6 +38,48 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     """)
     List<MenuItem> findAllAvailableByCategoryIdInOrderByDisplayOrderAsc(
             @Param("categoryIds") Collection<Long> categoryIds
+    );
+
+    @Query("""
+        SELECT new com.texos.texos_backend.dto.PublicMenuItemView(
+            category.id,
+            item.id,
+            item.itemName,
+            item.description,
+            item.price,
+            CASE WHEN item.imageUrl LIKE 'data:image/%' THEN null ELSE item.imageUrl END,
+            CASE WHEN item.imageUrl LIKE 'data:image/%' THEN true ELSE false END
+        )
+        FROM MenuItem item
+        JOIN item.category category
+        WHERE category.id IN :categoryIds
+          AND item.available = true
+        ORDER BY item.displayOrder ASC
+    """)
+    List<PublicMenuItemView> findAllPublicAvailableByCategoryIdInOrderByDisplayOrderAsc(
+            @Param("categoryIds") Collection<Long> categoryIds
+    );
+
+    @Query("""
+        SELECT item.imageUrl
+        FROM MenuItem item
+        JOIN item.category category
+        JOIN category.restaurant restaurant
+        WHERE item.id = :itemId
+          AND category.active = true
+          AND item.available = true
+          AND restaurant.active = true
+          AND EXISTS (
+              SELECT menuTable.id
+              FROM RestaurantTable menuTable
+              WHERE menuTable.qrToken = :qrToken
+                AND menuTable.active = true
+                AND menuTable.restaurant.id = restaurant.id
+          )
+    """)
+    Optional<String> findPublicImageDataByIdAndQrToken(
+            @Param("itemId") Long itemId,
+            @Param("qrToken") String qrToken
     );
 
     @Query("""

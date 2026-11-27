@@ -179,6 +179,7 @@ public class OrderApprovalService {
         Restaurant restaurant = grant.getRestaurant();
         if (!restaurant.isActive() || !restaurant.isOrderApprovalEnabled()) {
             grant.setStatus(OrderApprovalCodeStatus.REVOKED);
+            grant.setRevokedAt(now);
             accessCodeRepository.save(grant);
             throw new ResourceConflictException("Order approval access is currently disabled.");
         }

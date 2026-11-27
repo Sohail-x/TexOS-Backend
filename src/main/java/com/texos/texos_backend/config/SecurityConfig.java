@@ -76,6 +76,15 @@ public class SecurityConfig {
     }
 
     @Bean
+    public FilterRegistrationBean<ComplianceRateLimitFilter>
+            complianceRateLimitFilterRegistration(ComplianceRateLimitFilter filter) {
+        FilterRegistrationBean<ComplianceRateLimitFilter> registration =
+                new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
     public FilterRegistrationBean<RestaurantAccessFilter> restaurantAccessFilterRegistration(
             RestaurantAccessFilter filter) {
         FilterRegistrationBean<RestaurantAccessFilter> registration =
@@ -108,6 +117,7 @@ public class SecurityConfig {
             HttpSecurity http,
             JwtAuthenticationFilter jwtAuthenticationFilter,
             AuthRateLimitFilter authRateLimitFilter,
+            ComplianceRateLimitFilter complianceRateLimitFilter,
             KitchenStaffAuthenticationFilter kitchenStaffAuthenticationFilter,
             OrderApprovalStaffAuthenticationFilter orderApprovalStaffAuthenticationFilter,
             RestaurantAccessFilter restaurantAccessFilter,
@@ -138,6 +148,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/order-approval/staff/**").hasRole("ORDER_APPROVER")
                 .requestMatchers("/api/subscriptions/**").hasRole("OWNER")
                 .requestMatchers("/api/announcements/**").hasRole("OWNER")
+                .requestMatchers(HttpMethod.DELETE, "/api/customer/auth/account").permitAll()
                 .requestMatchers("/api/public/customers/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/public/menu/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/loyalty/status").permitAll()
@@ -149,12 +160,14 @@ public class SecurityConfig {
                 .requestMatchers("/health").permitAll()
                 .requestMatchers("/actuator/**").hasRole("TEXOS_ADMIN")
                 // Every owner/restaurant management API requires a valid JWT.
+                .requestMatchers("/api/owners/**").hasRole("OWNER")
                 .requestMatchers("/api/restaurants/**").hasRole("OWNER")
                 .requestMatchers("/api/auth/**").hasRole("OWNER")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(authRateLimitFilter, JwtAuthenticationFilter.class)
+            .addFilterAfter(complianceRateLimitFilter, JwtAuthenticationFilter.class)
             .addFilterAfter(kitchenStaffAuthenticationFilter, JwtAuthenticationFilter.class)
             .addFilterAfter(orderApprovalStaffAuthenticationFilter, KitchenStaffAuthenticationFilter.class)
             .addFilterAfter(restaurantAccessFilter, OrderApprovalStaffAuthenticationFilter.class)

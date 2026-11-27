@@ -50,10 +50,11 @@ public class AuthController {
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
         String identity = request.getEmail().trim();
         Owner owner = identity.contains("@")
-                ? ownerRepository.findByEmail(identity.toLowerCase()).orElse(null)
-                : ownerRepository.findByPhone(identity).orElse(null);
+                ? ownerRepository.findByEmailAndDeletedAtIsNull(identity.toLowerCase()).orElse(null)
+                : ownerRepository.findByPhoneAndDeletedAtIsNull(identity).orElse(null);
 
         if (owner == null || !owner.isActive()
+                || owner.getPasswordHash() == null
                 || !passwordEncoder.matches(request.getPassword(), owner.getPasswordHash())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Invalid email or password"));
@@ -79,7 +80,7 @@ public class AuthController {
     public ResponseEntity<?> google(@Valid @RequestBody GoogleTokenRequest request) {
         GoogleIdentityService.VerifiedGoogleIdentity identity =
                 googleIdentityService.verify(request.getCredential());
-        Owner owner = ownerRepository.findByGoogleSub(identity.subject()).orElse(null);
+        Owner owner = ownerRepository.findByGoogleSubAndDeletedAtIsNull(identity.subject()).orElse(null);
         if (owner == null) {
             if (ownerRepository.existsByEmail(identity.email())) {
                 throw new DuplicateResourceException(
@@ -238,8 +239,9 @@ public class AuthController {
 
     private Owner findAuthenticatedOwner(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) return null;
-        return ownerRepository.findByEmail(authentication.getName())
-                .or(() -> ownerRepository.findByPhone(authentication.getName())).orElse(null);
+        return ownerRepository.findByEmailAndDeletedAtIsNull(authentication.getName())
+                .or(() -> ownerRepository.findByPhoneAndDeletedAtIsNull(authentication.getName()))
+                .orElse(null);
     }
 
     private Map<String, Object> createAuthResponse(Owner owner, String message) {

@@ -13,10 +13,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -338,12 +340,38 @@ order.setPaymentStatus(PaymentStatus.PENDING);
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersForOwner(Long restaurantId, int page, int size) {
+        return getOrdersForOwner(restaurantId, page, size, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersForOwner(
+            Long restaurantId,
+            int page,
+            int size,
+            LocalDateTime start,
+            LocalDateTime end) {
+        if (start != null && end != null && !end.isAfter(start)) {
+            return List.of();
+        }
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
-        List<Long> orderIds = orderRepository.findOwnerOrderIdsPage(
-                restaurantId,
-                List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED),
-                PageRequest.of(safePage, safeSize));
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        List<OrderApprovalStatus> excludedStatuses =
+                List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED);
+        List<Long> orderIds;
+        if (start != null && end != null) {
+            orderIds = orderRepository.findOwnerOrderIdsPageInDateRange(
+                    restaurantId, excludedStatuses, start, end, pageable);
+        } else if (start != null) {
+            orderIds = orderRepository.findOwnerOrderIdsPageFrom(
+                    restaurantId, excludedStatuses, start, pageable);
+        } else if (end != null) {
+            orderIds = orderRepository.findOwnerOrderIdsPageBefore(
+                    restaurantId, excludedStatuses, end, pageable);
+        } else {
+            orderIds = orderRepository.findOwnerOrderIdsPage(
+                    restaurantId, excludedStatuses, pageable);
+        }
         if (orderIds.isEmpty()) {
             return List.of();
         }
@@ -412,7 +440,7 @@ public OrderResponse updateOrderStatus(
         OrderStatus newStatus
 ) {
     RestaurantOrder order = orderRepository
-            .findByIdAndRestaurantId(orderId, restaurantId)
+            .findByIdAndRestaurantIdForUpdate(orderId, restaurantId)
             .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
     ensureOwnerVisible(order);
 

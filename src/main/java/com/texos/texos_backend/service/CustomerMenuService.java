@@ -2,12 +2,13 @@
 package com.texos.texos_backend.service;
 
 import com.texos.texos_backend.dto.PublicMenuCategoryResponse;
+import com.texos.texos_backend.dto.PublicMenuImage;
 import com.texos.texos_backend.dto.PublicMenuItemResponse;
+import com.texos.texos_backend.dto.PublicMenuItemView;
 import com.texos.texos_backend.dto.PublicMenuResponse;
 
 import com.texos.texos_backend.entity.LoyaltyProgram;
 import com.texos.texos_backend.entity.MenuCategory;
-import com.texos.texos_backend.entity.MenuItem;
 
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 
@@ -25,10 +26,16 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Base64;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class CustomerMenuService {
+
+    private static final Pattern INLINE_IMAGE_PATTERN = Pattern.compile(
+            "^data:(image/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$");
 
     private final RestaurantTableRepository tableRepository;
     private final LoyaltyProgramRepository loyaltyProgramRepository;
@@ -59,15 +66,15 @@ public class CustomerMenuService {
                     restaurantId
                 );
 
-        Map<Long, List<MenuItem>> itemsByCategory = new HashMap<>();
+        Map<Long, List<PublicMenuItemView>> itemsByCategory = new HashMap<>();
         if (!categories.isEmpty()) {
             List<Long> categoryIds = categories.stream()
                     .map(MenuCategory::getId)
                     .toList();
-            for (MenuItem item : itemRepository
-                    .findAllAvailableByCategoryIdInOrderByDisplayOrderAsc(categoryIds)) {
+            for (PublicMenuItemView item : itemRepository
+                    .findAllPublicAvailableByCategoryIdInOrderByDisplayOrderAsc(categoryIds)) {
                 itemsByCategory.computeIfAbsent(
-                        item.getCategory().getId(), ignored -> new ArrayList<>())
+                        item.categoryId(), ignored -> new ArrayList<>())
                         .add(item);
             }
         }
@@ -75,7 +82,7 @@ public class CustomerMenuService {
         List<PublicMenuCategoryResponse> categoryResponses =
                 categories.stream()
                 .map(category -> mapCategoryToResponse(
-                        category, itemsByCategory.getOrDefault(category.getId(), List.of())))
+                        category, itemsByCategory.getOrDefault(category.getId(), List.of()), qrToken))
                 .toList();
 
         PublicMenuResponse response = new PublicMenuResponse();
@@ -97,13 +104,29 @@ public class CustomerMenuService {
         return response;
     }
 
+    @Transactional(readOnly = true)
+    public PublicMenuImage getCustomerMenuImage(String qrToken, Long itemId) {
+        String imageUrl = itemRepository
+                .findPublicImageDataByIdAndQrToken(itemId, qrToken)
+                .orElseThrow(() -> new ResourceNotFoundException("Menu image not found"));
+        Matcher imageMatch = INLINE_IMAGE_PATTERN.matcher(imageUrl);
+        if (!imageMatch.matches()) {
+            throw new ResourceNotFoundException("Menu image not found");
+        }
+
+        return new PublicMenuImage(
+                imageMatch.group(1),
+                Base64.getDecoder().decode(imageMatch.group(2)));
+    }
+
     private PublicMenuCategoryResponse mapCategoryToResponse(
             MenuCategory category,
-            List<MenuItem> items
+            List<PublicMenuItemView> items,
+            String qrToken
     ) {
 
         List<PublicMenuItemResponse> itemResponses = items.stream()
-                .map(this::mapItemToResponse)
+                .map(item -> mapItemToResponse(item, qrToken))
                 .toList();
 
         PublicMenuCategoryResponse response =
@@ -118,16 +141,18 @@ public class CustomerMenuService {
         return response;
     }
 
-    private PublicMenuItemResponse mapItemToResponse(MenuItem item) {
+    private PublicMenuItemResponse mapItemToResponse(PublicMenuItemView item, String qrToken) {
 
         PublicMenuItemResponse response =
                 new PublicMenuItemResponse();
 
-        response.setId(item.getId());
-        response.setItemName(item.getItemName());
-        response.setDescription(item.getDescription());
-        response.setPrice(item.getPrice());
-        response.setImageUrl(item.getImageUrl());
+        response.setId(item.id());
+        response.setItemName(item.itemName());
+        response.setDescription(item.description());
+        response.setPrice(item.price());
+        response.setImageUrl(item.inlineImage()
+                ? "/api/public/menu/" + qrToken + "/items/" + item.id() + "/image"
+                : item.imageUrl());
 
         return response;
     }

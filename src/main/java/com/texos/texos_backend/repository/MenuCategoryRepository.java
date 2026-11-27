@@ -9,6 +9,8 @@ import java.util.Optional;
 
 public interface MenuCategoryRepository extends JpaRepository<MenuCategory, Long> {
 
+    List<MenuCategory> findAllByRestaurantId(Long restaurantId);
+
     List<MenuCategory> findAllByRestaurantIdOrderByDisplayOrderAsc(Long restaurantId);
 
     List<MenuCategory> findAllByRestaurantIdAndActiveTrueOrderByDisplayOrderAsc(

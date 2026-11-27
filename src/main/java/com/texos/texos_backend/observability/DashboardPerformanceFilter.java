@@ -25,6 +25,8 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
             DashboardPerformanceFilter.class.getName() + ".measurement";
     private static final String NOTIFICATION_NEXT_ROUTE =
             "/api/restaurants/{restaurantId}/payments/notifications/next";
+    private static final String PUBLIC_MENU_IMAGE_ROUTE =
+            "/api/public/menu/{qrToken}/items/{itemId}/image";
     private static final String LOYALTY_ROUTE_PREFIX =
             "/api/restaurants/{restaurantId}/loyalty/";
     private static final String LOYALTY_REWARD_CREATE_ROUTE =
@@ -549,7 +551,12 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
     }
 
     private static boolean isMeasuredResponseRoute(String route) {
-        return isOrderDashboardRoute(route) || isOwnerRewardRoute(route);
+        return isOrderDashboardRoute(route)
+                || isOwnerRewardRoute(route)
+                || "/api/public/menu/{qrToken}".equals(route)
+                || PUBLIC_MENU_IMAGE_ROUTE.equals(route)
+                || "/api/restaurants/{restaurantId}/orders".equals(route)
+                || "/api/restaurants/{restaurantId}/payments".equals(route);
     }
 
     private static String endpointType(String route) {
@@ -557,7 +564,9 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
             case NOTIFICATION_NEXT_ROUTE -> "payment_notification_next";
             case "/api/announcements/active" -> "announcement_active";
             case "/api/public/menu/{qrToken}" -> "public_menu";
+            case PUBLIC_MENU_IMAGE_ROUTE -> "public_menu_image";
             case "/api/restaurants/{restaurantId}/orders" -> "owner_orders";
+            case "/api/restaurants/{restaurantId}/payments" -> "owner_payment_history";
             case "/api/restaurants/{restaurantId}/kitchen/orders" -> "owner_kitchen_orders";
             case "/api/kitchen-staff/orders" -> "kitchen_staff_orders";
             case "/api/order-approval/staff/orders" -> "order_approval_staff_orders";
@@ -600,10 +609,19 @@ public class DashboardPerformanceFilter extends OncePerRequestFilter {
         }
 
         String[] parts = path.split("/");
+        if ("GET".equalsIgnoreCase(method) && parts.length == 8
+                && "api".equals(parts[1]) && "public".equals(parts[2])
+                && "menu".equals(parts[3]) && "items".equals(parts[5])
+                && parts[6].matches("\\d+") && "image".equals(parts[7])) {
+            return PUBLIC_MENU_IMAGE_ROUTE;
+        }
         if (parts.length >= 5 && "api".equals(parts[1])
                 && "restaurants".equals(parts[2]) && parts[3].matches("\\d+")) {
             if (parts.length == 5 && "GET".equalsIgnoreCase(method) && "orders".equals(parts[4])) {
                 return "/api/restaurants/{restaurantId}/orders";
+            }
+            if (parts.length == 5 && "GET".equalsIgnoreCase(method) && "payments".equals(parts[4])) {
+                return "/api/restaurants/{restaurantId}/payments";
             }
             if (parts.length == 6 && "GET".equalsIgnoreCase(method)
                     && "kitchen".equals(parts[4]) && "orders".equals(parts[5])) {

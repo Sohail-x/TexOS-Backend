@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.texos.texos_backend.entity.LoyaltyProgram;
 import com.texos.texos_backend.entity.MenuCategory;
 import com.texos.texos_backend.entity.MenuItem;
+import com.texos.texos_backend.dto.PublicMenuItemView;
 import com.texos.texos_backend.repository.CustomerMenuContext;
 import com.texos.texos_backend.repository.LoyaltyProgramRepository;
 import com.texos.texos_backend.repository.MenuCategoryRepository;
@@ -30,12 +31,15 @@ class CustomerMenuServiceTest {
         TestContext context = new TestContext();
         MenuCategory mains = category(11L, "Mains");
         MenuCategory drinks = category(12L, "Drinks");
-        MenuItem secondMain = item(102L, mains, "Rice", 2);
-        MenuItem firstMain = item(101L, mains, "Soup", 1);
-        MenuItem drink = item(103L, drinks, "Tea", 1);
+        PublicMenuItemView firstMain =
+                new PublicMenuItemView(11L, 101L, "Soup", null, BigDecimal.TEN, null, false);
+        PublicMenuItemView secondMain =
+                new PublicMenuItemView(11L, 102L, "Rice", null, BigDecimal.TEN, null, false);
+        PublicMenuItemView drink =
+                new PublicMenuItemView(12L, 103L, "Tea", null, BigDecimal.TEN, null, false);
         when(context.categories.findAllByRestaurantIdAndActiveTrueOrderByDisplayOrderAsc(
                 RESTAURANT_ID)).thenReturn(List.of(mains, drinks));
-        when(context.items.findAllAvailableByCategoryIdInOrderByDisplayOrderAsc(
+        when(context.items.findAllPublicAvailableByCategoryIdInOrderByDisplayOrderAsc(
                 List.of(11L, 12L))).thenReturn(List.of(firstMain, drink, secondMain));
 
         var result = context.service.getCustomerMenu(QR_TOKEN);
@@ -48,10 +52,32 @@ class CustomerMenuServiceTest {
                 .stream().map(item -> item.getItemName()).toList());
         assertEquals("T1", result.getTableNumber());
         assertTrue(result.isRewardsEnabled());
-        verify(context.items).findAllAvailableByCategoryIdInOrderByDisplayOrderAsc(
+        verify(context.items).findAllPublicAvailableByCategoryIdInOrderByDisplayOrderAsc(
                 List.of(11L, 12L));
         verify(context.items, never())
                 .findAllByCategoryIdAndAvailableTrueOrderByDisplayOrderAsc(11L);
+    }
+
+    @Test
+    void servesInlineMenuImagesSeparatelyFromTheMenuResponse() {
+        TestContext context = new TestContext();
+        MenuCategory category = category(11L, "Mains");
+        PublicMenuItemView itemView =
+                new PublicMenuItemView(11L, 101L, "Soup", null, BigDecimal.TEN, null, true);
+        when(context.categories.findAllByRestaurantIdAndActiveTrueOrderByDisplayOrderAsc(
+                RESTAURANT_ID)).thenReturn(List.of(category));
+        when(context.items.findAllPublicAvailableByCategoryIdInOrderByDisplayOrderAsc(List.of(11L)))
+                .thenReturn(List.of(itemView));
+        when(context.items.findPublicImageDataByIdAndQrToken(101L, QR_TOKEN))
+                .thenReturn(Optional.of("data:image/png;base64,aGVsbG8="));
+
+        var menu = context.service.getCustomerMenu(QR_TOKEN);
+        var responseItem = menu.getCategories().get(0).getItems().get(0);
+        var image = context.service.getCustomerMenuImage(QR_TOKEN, 101L);
+
+        assertEquals("/api/public/menu/table-qr/items/101/image", responseItem.getImageUrl());
+        assertEquals("image/png", image.contentType());
+        assertEquals("hello", new String(image.bytes(), java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Test
@@ -67,7 +93,7 @@ class CustomerMenuServiceTest {
         assertTrue(result.getCategories().isEmpty());
         assertFalse(result.isRewardsEnabled());
         verify(context.items, never())
-                .findAllAvailableByCategoryIdInOrderByDisplayOrderAsc(org.mockito.ArgumentMatchers.anyList());
+                .findAllPublicAvailableByCategoryIdInOrderByDisplayOrderAsc(org.mockito.ArgumentMatchers.anyList());
     }
 
     private static MenuCategory category(Long id, String name) {

@@ -14,6 +14,7 @@ import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.repository.OwnerRepository;
 import com.texos.texos_backend.repository.RestaurantRepository;
+import com.texos.texos_backend.repository.CustomerRepository;
 import com.texos.texos_backend.service.CustomerSessionService;
 import com.texos.texos_backend.service.KitchenAccessService;
 import com.texos.texos_backend.service.JwtService;
@@ -38,7 +39,8 @@ import org.springframework.security.access.AccessDeniedException;
 
 class WebSocketSubscriptionAuthorizationInterceptorTest {
     private static final String JWT_SECRET = "test-secret-that-is-at-least-32-bytes-long";
-    private final CustomerSessionService customerSessionService = new CustomerSessionService();
+    private final CustomerSessionService customerSessionService =
+            new CustomerSessionService(mock(CustomerRepository.class));
     private final JwtService jwtService = new JwtService(JWT_SECRET);
     private final OwnerRepository ownerRepository = mock(OwnerRepository.class);
     private final RestaurantRepository restaurantRepository = mock(RestaurantRepository.class);

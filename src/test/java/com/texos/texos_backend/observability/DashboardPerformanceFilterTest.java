@@ -237,6 +237,41 @@ class DashboardPerformanceFilterTest {
     }
 
     @Test
+    void measuresOwnerListsAndPublicMenuResponseSizes() throws Exception {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        DashboardPerformanceFilter filter =
+                new DashboardPerformanceFilter(registry, mock(DataSource.class));
+        Map<String, String> endpoints = Map.of(
+                "/api/restaurants/987/orders", "owner_orders",
+                "/api/restaurants/987/payments", "owner_payment_history",
+                "/api/public/menu/table-qr", "public_menu",
+                "/api/public/menu/table-qr/items/101/image", "public_menu_image");
+        byte[] responseBody = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+
+        for (Map.Entry<String, String> endpoint : endpoints.entrySet()) {
+            MockHttpServletRequest request = new MockHttpServletRequest(
+                    "GET", endpoint.getKey());
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+                DashboardRequestMeasurements.Measurement measurement =
+                        DashboardRequestMeasurements.current();
+                measurement.finishSecurityAtFilter();
+                measurement.startMvcHandler();
+                ((HttpServletResponse) servletResponse).getOutputStream().write(responseBody);
+                measurement.finishMvcHandler();
+            });
+
+            assertEquals(responseBody.length,
+                    registry.get("texos.api.response.body.bytes")
+                            .tag("endpoint_type", endpoint.getValue())
+                            .tag("status", "200")
+                            .tag("outcome", "completed")
+                            .summary().totalAmount());
+        }
+        registry.close();
+    }
+
+    @Test
     void instrumentsRewardManagementReadsAndMutationsWithSanitizedEndpointLabels()
             throws Exception {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();

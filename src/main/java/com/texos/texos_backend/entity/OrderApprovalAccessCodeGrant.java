@@ -49,6 +49,9 @@ public class OrderApprovalAccessCodeGrant {
     @Column(name = "used_at")
     private LocalDateTime usedAt;
 
+    @Column(name = "revoked_at")
+    private LocalDateTime revokedAt;
+
     @Column(name = "session_id", unique = true)
     private UUID sessionId;
 

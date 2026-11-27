@@ -50,7 +50,7 @@ public class PasswordResetService {
 
         String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
 
-        ownerRepository.findByEmail(normalizedEmail)
+        ownerRepository.findByEmailAndDeletedAtIsNull(normalizedEmail)
                 .filter(Owner::isActive)
                 .ifPresent(this::createAndSendResetLink);
     }
@@ -68,6 +68,7 @@ public class PasswordResetService {
 
         Owner owner = ownerRepository.findById(resetToken.getOwnerId())
                 .filter(Owner::isActive)
+                .filter(foundOwner -> foundOwner.getDeletedAt() == null)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Owner account not found"));
 

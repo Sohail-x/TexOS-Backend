@@ -12,9 +12,11 @@ import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -29,14 +31,20 @@ public class OwnerOrderController {
     public ResponseEntity<List<OrderResponse>> getOrders(
             @PathVariable Long restaurantId,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
     ) {
-        if (page != null || size != null) {
+        if (page != null || size != null || from != null || to != null) {
             return ResponseEntity.ok(
                     orderService.getOrdersForOwner(
                             restaurantId,
                             page == null ? 0 : page,
-                            size == null ? 100 : size
+                            size == null ? 100 : size,
+                            from,
+                            to
                     )
             );
         }

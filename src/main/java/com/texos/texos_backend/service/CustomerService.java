@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -47,10 +49,12 @@ public class CustomerService {
                 : email.trim().toLowerCase(Locale.ROOT);
 
         return customerRepository
-                .findByRestaurant_IdAndMobileNumber(restaurant.getId(), cleanMobile)
+                .findByRestaurant_IdAndMobileNumberAndActiveTrueAndDeletedAtIsNull(
+                        restaurant.getId(), cleanMobile)
                 .map(existing -> {
                     // Keep the existing contact record. Do not overwrite its details
                     // using an unverified phone number supplied by another visitor.
+                    existing.setLastActivityAt(LocalDateTime.now(ZoneOffset.UTC));
                     return existing;
                 })
                 .orElseGet(() -> {

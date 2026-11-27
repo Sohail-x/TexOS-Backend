@@ -29,4 +29,8 @@ public interface SubscriptionPaymentRepository extends JpaRepository<Subscriptio
             Collection<String> statuses, LocalDateTime updatedAt);
 
     List<SubscriptionPayment> findAllByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<SubscriptionPayment> findTop500ByCreatedAtBeforeOrderByCreatedAtAsc(
+            LocalDateTime cutoff);
 }

@@ -1,11 +1,15 @@
 package com.texos.texos_backend.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -19,6 +23,29 @@ import com.texos.texos_backend.repository.RestaurantRepository;
 import org.junit.jupiter.api.Test;
 
 class CustomerServiceTest {
+
+    @Test
+    void refreshesActivityWhenReusingCustomerForAnOrder() {
+        CustomerRepository customerRepository = mock(CustomerRepository.class);
+        RestaurantRepository restaurantRepository = mock(RestaurantRepository.class);
+        CustomerService customerService =
+                new CustomerService(customerRepository, restaurantRepository);
+        Restaurant restaurant = new Restaurant();
+        restaurant.setId(3L);
+        Customer existing = customer(10L, 3L);
+        LocalDateTime previousActivity = LocalDateTime.now(ZoneOffset.UTC).minusDays(800);
+        existing.setLastActivityAt(previousActivity);
+
+        when(customerRepository.findByRestaurant_IdAndMobileNumberAndActiveTrueAndDeletedAtIsNull(
+                3L, "9876543210"))
+                .thenReturn(Optional.of(existing));
+
+        Customer result = customerService.getOrCreateCustomer(
+                restaurant, "New name", "9876543210", null);
+
+        assertSame(existing, result);
+        assertTrue(existing.getLastActivityAt().isAfter(previousActivity));
+    }
 
     @Test
     void listsOnlyCustomersWithRestaurantOrdersAndIncludesMetrics() {

@@ -1,7 +1,10 @@
 package com.texos.texos_backend.controller;
 
-import com.texos.texos_backend.dto.OwnerRegistrationRequest;
+import com.texos.texos_backend.dto.AccountDeletionRequest;
+import com.texos.texos_backend.config.AuthenticatedOwnerPrincipal;
 import com.texos.texos_backend.entity.Owner;
+import com.texos.texos_backend.dto.OwnerRegistrationRequest;
+import com.texos.texos_backend.exception.InvalidRequestException;
 import com.texos.texos_backend.service.OwnerService;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.service.RestaurantService;
@@ -13,7 +16,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -58,5 +63,26 @@ public class OwnerController {
         response.put("restaurantName", savedRestaurant.getRestaurantName());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Map<String, String>> deleteMyAccount(
+            @Valid @RequestBody AccountDeletionRequest request,
+            HttpServletRequest httpRequest) {
+        if (!"DELETE".equals(request.confirmation())) {
+            throw new InvalidRequestException("Type DELETE to confirm account deletion.");
+        }
+
+        Object principal = httpRequest.getAttribute(
+                AuthenticatedOwnerPrincipal.REQUEST_ATTRIBUTE);
+        if (!(principal instanceof AuthenticatedOwnerPrincipal ownerPrincipal)) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Owner authentication is required.");
+        }
+
+        ownerService.deleteOwnerAccount(ownerPrincipal.ownerId());
+        return ResponseEntity.ok(Map.of(
+                "message", "Owner account deactivated. Profile anonymization is scheduled within 30 days."
+        ));
     }
 }

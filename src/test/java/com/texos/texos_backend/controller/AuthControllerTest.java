@@ -78,7 +78,7 @@ class AuthControllerTest {
         AuthController controller = controller(owners, restaurants, mock(PasswordEncoder.class),
                 mock(JwtService.class));
         Owner owner = owner();
-        when(owners.findByEmail(owner.getEmail())).thenReturn(Optional.of(owner));
+        when(owners.findByEmailAndDeletedAtIsNull(owner.getEmail())).thenReturn(Optional.of(owner));
         when(restaurants.findAllByOwnerIdAndActiveTrue(owner.getId())).thenReturn(List.of());
 
         var response = controller.me(
@@ -86,7 +86,7 @@ class AuthControllerTest {
                 new MockHttpServletRequest());
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        verify(owners).findByEmail(owner.getEmail());
+        verify(owners).findByEmailAndDeletedAtIsNull(owner.getEmail());
         verify(restaurants).findAllByOwnerIdAndActiveTrue(owner.getId());
     }
 
@@ -100,7 +100,7 @@ class AuthControllerTest {
                 owners, restaurants, passwordEncoder, jwtService);
         Owner owner = owner();
         owner.setPasswordHash("encoded-password");
-        when(owners.findByEmail(owner.getEmail())).thenReturn(Optional.of(owner));
+        when(owners.findByEmailAndDeletedAtIsNull(owner.getEmail())).thenReturn(Optional.of(owner));
         when(passwordEncoder.matches("password", "encoded-password")).thenReturn(true);
         when(jwtService.generateToken(owner.getEmail(), owner.getTokenVersion()))
                 .thenReturn("test-token");

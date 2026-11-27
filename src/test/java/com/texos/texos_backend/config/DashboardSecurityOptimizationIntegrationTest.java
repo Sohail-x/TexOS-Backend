@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import com.texos.texos_backend.entity.Owner;
 import com.texos.texos_backend.entity.Restaurant;
@@ -24,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -113,6 +116,24 @@ class DashboardSecurityOptimizationIntegrationTest {
 
         String token = jwtService.generateToken(owner.getEmail(), owner.getTokenVersion());
         expectStatus(restaurant.getId(), token, 200);
+    }
+
+    @Test
+    void ownerCanEnableOrderApprovalWithRestaurantRowLock() throws Exception {
+        Owner owner = createOwner(true, 0);
+        Restaurant restaurant = createRestaurant(owner);
+        SubscriptionPlan plan = createPlan();
+        addSubscription(
+                restaurant, plan, SubscriptionStatus.ACTIVE,
+                LocalDateTime.now(ZoneOffset.UTC).plusDays(2));
+        String token = jwtService.generateToken(owner.getEmail(), owner.getTokenVersion());
+
+        mockMvc.perform(put("/api/restaurants/{restaurantId}/order-approval", restaurant.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true));
     }
 
     @Test

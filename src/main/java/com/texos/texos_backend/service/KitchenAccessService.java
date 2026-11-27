@@ -127,6 +127,7 @@ public class KitchenAccessService {
                 .orElseThrow(() -> new ResourceNotFoundException("No kitchen access grant found"));
         if (grant.getStatus() == KitchenAccessStatus.ACTIVE) {
             grant.setStatus(KitchenAccessStatus.REVOKED);
+            grant.setRevokedAt(LocalDateTime.now());
         }
         if (grant.getStatus() == KitchenAccessStatus.USED && grant.getRevokedAt() == null) {
             grant.setRevokedAt(LocalDateTime.now());

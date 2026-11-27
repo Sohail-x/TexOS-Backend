@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -44,6 +45,10 @@ public class Restaurant {
     private String upiId;
 @Column(nullable = false)
     private boolean active = true;
+
+@Column(name = "deleted_at")
+private Instant deletedAt;
+
 
     @Column(name = "order_approval_enabled", nullable = false)
     private boolean orderApprovalEnabled;

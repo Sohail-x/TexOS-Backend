@@ -48,7 +48,7 @@ class PasswordResetServiceTest {
     @Test
 void sendsOneTimeResetLinkAndStoresOnlyItsHash() throws Exception {
     Owner owner = owner();
-    when(ownerRepository.findByEmail("owner@example.com"))
+    when(ownerRepository.findByEmailAndDeletedAtIsNull("owner@example.com"))
             .thenReturn(Optional.of(owner));
 
     service.requestReset(" Owner@Example.com ");
@@ -107,7 +107,8 @@ void sendsOneTimeResetLinkAndStoresOnlyItsHash() throws Exception {
 
     @Test
     void doesNotRevealWhetherEmailHasAnAccount() {
-        when(ownerRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(ownerRepository.findByEmailAndDeletedAtIsNull("missing@example.com"))
+                .thenReturn(Optional.empty());
 
         service.requestReset("missing@example.com");
 

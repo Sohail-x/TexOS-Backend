@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -24,7 +25,7 @@ public class Owner {
     @Column(unique = true, length = 150)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String passwordHash;
 
     @Column(length = 20)
@@ -45,6 +46,12 @@ public class Owner {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @Column(name = "anonymized_at")
+    private Instant anonymizedAt;
 
     @Column(name = "token_version", nullable = false)
     private int tokenVersion;

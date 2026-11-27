@@ -1,9 +1,15 @@
 package com.texos.texos_backend.service;
 
 import com.texos.texos_backend.entity.Owner;
+import com.texos.texos_backend.entity.MenuCategory;
+import com.texos.texos_backend.entity.MenuItem;
+import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.exception.DuplicateResourceException;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
+import com.texos.texos_backend.repository.MenuCategoryRepository;
+import com.texos.texos_backend.repository.MenuItemRepository;
 import com.texos.texos_backend.repository.OwnerRepository;
+import com.texos.texos_backend.repository.RestaurantRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -11,12 +17,18 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+
 @Service
 @RequiredArgsConstructor
 public class OwnerService {
 
     private final OwnerRepository ownerRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RestaurantRepository restaurantRepository;
+    private final MenuCategoryRepository menuCategoryRepository;
+    private final MenuItemRepository menuItemRepository;
 
     @Transactional
     public Owner registerOwner(Owner owner) {
@@ -55,5 +67,48 @@ public class OwnerService {
         ).orElseThrow(() ->
             new ResourceNotFoundException("Owner not found")
         );
+    }
+
+    @Transactional
+    public void deleteOwnerAccount(Long ownerId) {
+        Owner owner = ownerRepository.findByIdForUpdate(ownerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Owner not found"));
+        if (!owner.isActive()) {
+            return;
+        }
+
+        Instant deletedAt = Instant.now();
+        for (Restaurant restaurant : restaurantRepository.findAllByOwnerId(ownerId)) {
+            restaurant.setActive(false);
+            restaurant.setDeletedAt(deletedAt);
+            restaurant.setOrderApprovalEnabled(false);
+            restaurant.setAddress(null);
+            restaurant.setPhone(null);
+            restaurant.setEmail(null);
+            restaurant.setGoogleMapsUrl(null);
+            restaurant.setOpeningHours(null);
+            restaurant.setPaymentQrImage(null);
+            restaurant.setUpiId(null);
+
+            for (MenuCategory category : menuCategoryRepository.findAllByRestaurantId(restaurant.getId())) {
+                category.setCategoryName("Deleted category " + category.getId());
+                category.setDescription(null);
+                category.setActive(false);
+            }
+            for (MenuItem item : menuItemRepository.findAllByRestaurantId(restaurant.getId())) {
+                item.setItemName("Deleted menu item " + item.getId());
+                item.setDescription(null);
+                item.setImageUrl(null);
+                item.setPrice(BigDecimal.ZERO);
+                item.setAvailable(false);
+                item.setDisplayOrder(0);
+            }
+        }
+
+        owner.setActive(false);
+        owner.setPasswordHash(null);
+        owner.setDeletedAt(deletedAt);
+        owner.setAnonymizedAt(null);
+        owner.setTokenVersion(owner.getTokenVersion() + 1);
     }
 }

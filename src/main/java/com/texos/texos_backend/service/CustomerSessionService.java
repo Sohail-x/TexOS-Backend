@@ -1,19 +1,26 @@
 package com.texos.texos_backend.service;
 
+import com.texos.texos_backend.repository.CustomerRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 @Service
+@RequiredArgsConstructor
 public class CustomerSessionService {
+
+    private final CustomerRepository customerRepository;
 
     public static final int SESSION_TIMEOUT_SECONDS = 60 * 24 * 60 * 60;
 
@@ -80,6 +87,13 @@ public class CustomerSessionService {
             return null;
         }
 
+        if (!customerRepository.existsByIdAndRestaurant_IdAndActiveTrueAndDeletedAtIsNull(
+                customerSession.getCustomerId(), restaurantId)) {
+            sessions.remove(restaurantId);
+            session.setAttribute(SESSION_ATTRIBUTE, sessions);
+            return null;
+        }
+
         Instant expiryTime = customerSession.getLastActivityAt()
                 .plus(Duration.ofDays(60));
 
@@ -91,6 +105,11 @@ public class CustomerSessionService {
 
         customerSession.updateActivity();
         session.setAttribute(SESSION_ATTRIBUTE, sessions);
+        LocalDateTime activityNow = LocalDateTime.now(ZoneOffset.UTC);
+        customerRepository.touchLastActivity(
+                customerSession.getCustomerId(),
+                activityNow.minusDays(1),
+                activityNow);
 
         return customerSession;
     }

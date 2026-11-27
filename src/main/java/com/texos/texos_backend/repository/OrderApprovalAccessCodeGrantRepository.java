@@ -35,6 +35,7 @@ public interface OrderApprovalAccessCodeGrantRepository
     @Modifying
     @Query("update OrderApprovalAccessCodeGrant grant set grant.status = "
             + "com.texos.texos_backend.entity.OrderApprovalCodeStatus.REVOKED "
+            + ", grant.revokedAt = CURRENT_TIMESTAMP "
             + "where grant.restaurant.id = :restaurantId and grant.status = "
             + "com.texos.texos_backend.entity.OrderApprovalCodeStatus.ACTIVE")
     int revokeActiveByRestaurantId(@Param("restaurantId") Long restaurantId);
@@ -42,6 +43,7 @@ public interface OrderApprovalAccessCodeGrantRepository
     @Modifying
     @Query("update OrderApprovalAccessCodeGrant grant set grant.status = "
             + "com.texos.texos_backend.entity.OrderApprovalCodeStatus.REVOKED "
+            + ", grant.revokedAt = CURRENT_TIMESTAMP "
             + "where grant.id = :grantId and grant.status = "
             + "com.texos.texos_backend.entity.OrderApprovalCodeStatus.ACTIVE")
     int revokeActiveById(@Param("grantId") Long grantId);

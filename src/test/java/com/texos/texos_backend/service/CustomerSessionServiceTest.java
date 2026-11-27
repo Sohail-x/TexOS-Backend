@@ -7,11 +7,16 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import com.texos.texos_backend.repository.CustomerRepository;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class CustomerSessionServiceTest {
 
+    private final CustomerRepository customerRepository = mock(CustomerRepository.class);
     private final CustomerSessionService customerSessionService =
-            new CustomerSessionService();
+            new CustomerSessionService(customerRepository);
 
     @Test
     void guestOrderAccessIsScopedToBrowserSessionAndRestaurant() {
@@ -34,5 +39,16 @@ class CustomerSessionServiceTest {
                 Set.of(),
                 customerSessionService.getOrderNumbers(
                         new MockHttpServletRequest(), 11L));
+    }
+
+    @Test
+    void deletedCustomerSessionIsRejectedAndRemoved() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        customerSessionService.createSession(request, 27L, 11L);
+        when(customerRepository.existsByIdAndRestaurant_IdAndActiveTrueAndDeletedAtIsNull(
+                27L, 11L))
+                .thenReturn(false);
+
+        assertNull(customerSessionService.getActiveSession(request, 11L));
     }
 }

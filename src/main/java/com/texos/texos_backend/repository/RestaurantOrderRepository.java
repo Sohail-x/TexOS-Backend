@@ -6,7 +6,9 @@ import com.texos.texos_backend.entity.PaymentStatus;
 import com.texos.texos_backend.entity.RestaurantOrder;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -20,6 +22,17 @@ import jakarta.persistence.LockModeType;
 public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder, Long> {
 
     boolean existsByTable_Id(Long tableId);
+
+    @Modifying
+    @Query("""
+            update RestaurantOrder order
+            set order.customer = null,
+                order.customerName = null,
+                order.customerMobile = null,
+                order.customerEmail = null
+            where order.customer.id = :customerId
+            """)
+    int anonymizeCustomerDetails(@Param("customerId") Long customerId);
 
     @Query("""
             select count(order) as totalOrders,
@@ -73,6 +86,38 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
         );
 
         List<RestaurantOrder> findAllByRestaurantIdOrderByCreatedAtDesc(Long restaurantId);
+
+        @Query("""
+                select distinct orderRow
+                from RestaurantOrder orderRow
+                join fetch orderRow.restaurant restaurant
+                join fetch restaurant.owner
+                left join fetch orderRow.customer customer
+                where restaurant.id in :restaurantIds
+                order by orderRow.createdAt desc
+                """)
+        List<RestaurantOrder> findComplianceOrdersByRestaurantIds(
+                @Param("restaurantIds") Collection<Long> restaurantIds);
+
+        @Query("""
+                select distinct orderRow
+                from RestaurantOrder orderRow
+                join fetch orderRow.restaurant restaurant
+                join fetch restaurant.owner
+                left join fetch orderRow.customer customer
+                where (:name is null or lower(coalesce(orderRow.customerName, customer.customerName, '')) like lower(concat('%', :name, '%')))
+                  and (:email is null or lower(coalesce(orderRow.customerEmail, customer.email, '')) like lower(concat('%', :email, '%')))
+                  and (:phone is null or coalesce(orderRow.customerMobile, customer.mobileNumber, '') like concat('%', :phone, '%'))
+                order by orderRow.createdAt desc
+                """)
+        List<RestaurantOrder> findComplianceOrdersByCustomerDetails(
+                @Param("name") String customerName,
+                @Param("email") String customerEmail,
+                @Param("phone") String customerPhone);
+
+        @EntityGraph(attributePaths = {"restaurant", "restaurant.owner", "customer"})
+        List<RestaurantOrder> findAllByCustomer_IdInOrderByCreatedAtDesc(
+                Collection<Long> customerIds);
 
         Optional<RestaurantOrder> findByIdAndRestaurantId(Long orderId, Long restaurantId);
 
@@ -226,6 +271,50 @@ public interface RestaurantOrderRepository extends JpaRepository<RestaurantOrder
         List<Long> findOwnerOrderIdsPage(
                 @Param("restaurantId") Long restaurantId,
                 @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                Pageable pageable);
+
+        @Query("""
+                select order.id
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                  and order.createdAt >= :start
+                  and order.createdAt < :end
+                order by order.createdAt desc
+                """)
+        List<Long> findOwnerOrderIdsPageInDateRange(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                @Param("start") LocalDateTime start,
+                @Param("end") LocalDateTime end,
+                Pageable pageable);
+
+        @Query("""
+                select order.id
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                  and order.createdAt >= :start
+                order by order.createdAt desc
+                """)
+        List<Long> findOwnerOrderIdsPageFrom(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                @Param("start") LocalDateTime start,
+                Pageable pageable);
+
+        @Query("""
+                select order.id
+                from RestaurantOrder order
+                where order.restaurant.id = :restaurantId
+                  and order.approvalStatus not in :excludedStatuses
+                  and order.createdAt < :end
+                order by order.createdAt desc
+                """)
+        List<Long> findOwnerOrderIdsPageBefore(
+                @Param("restaurantId") Long restaurantId,
+                @Param("excludedStatuses") Collection<OrderApprovalStatus> excludedStatuses,
+                @Param("end") LocalDateTime end,
                 Pageable pageable);
 
         @Query("""

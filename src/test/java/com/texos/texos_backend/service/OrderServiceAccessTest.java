@@ -145,7 +145,7 @@ class OrderServiceAccessTest {
     }
 
     @Test
-    void servingAnOrderTriggersPointsLifecycleProcessing() {
+    void acceptingAnOrderLocksTheRowAndTriggersPointsLifecycleProcessing() {
         RestaurantTableRepository tableRepository = mock(RestaurantTableRepository.class);
         MenuItemRepository menuItemRepository = mock(MenuItemRepository.class);
         RestaurantOrderRepository orderRepository = mock(RestaurantOrderRepository.class);
@@ -165,9 +165,9 @@ class OrderServiceAccessTest {
         order.setCustomer(customer);
         order.setTable(table);
         order.setOrderNumber("order-11");
-        order.setOrderStatus(OrderStatus.READY);
+        order.setOrderStatus(OrderStatus.NEW);
         order.setItems(new ArrayList<>());
-        when(orderRepository.findByIdAndRestaurantId(11L, 7L))
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(11L, 7L))
                 .thenReturn(Optional.of(order));
         when(orderRepository.save(order)).thenReturn(order);
 
@@ -185,8 +185,10 @@ class OrderServiceAccessTest {
                 mock(org.springframework.context.ApplicationEventPublisher.class),
                 mock(RestaurantRepository.class));
 
-        orderService.updateOrderStatus(7L, 11L, OrderStatus.SERVED);
+        orderService.updateOrderStatus(7L, 11L, OrderStatus.ACCEPTED);
 
+        assertEquals(OrderStatus.ACCEPTED, order.getOrderStatus());
+        verify(orderRepository).findByIdAndRestaurantIdForUpdate(11L, 7L);
         verify(loyaltyService).processOrderLifecycle(order);
     }
 
