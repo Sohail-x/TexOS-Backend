@@ -1,4 +1,4 @@
 package com.texos.texos_backend.dto;
 
-public record OrderApprovalSettingsResponse(boolean enabled, String pageUrl) {
+public record OrderApprovalSettingsResponse(boolean enabled, String pageUrl, long activeStaffCount) {
 }

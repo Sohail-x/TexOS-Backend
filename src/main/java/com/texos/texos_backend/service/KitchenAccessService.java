@@ -55,31 +55,37 @@ public class KitchenAccessService {
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant not found"));
 
         LocalDateTime now = LocalDateTime.now();
-        KitchenAccessGrant latest = grantRepository
-                .findFirstByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
-                .orElse(null);
-        if (latest != null && latest.getStatus() == KitchenAccessStatus.ACTIVE) {
-            if (latest.getExpiresAt().isAfter(now)) {
-                throw new KitchenAccessException(
-                        HttpStatus.CONFLICT,
-                        "An access code is already active. Revoke it or wait for it to expire.");
-            }
-            latest.setStatus(KitchenAccessStatus.EXPIRED);
-            grantRepository.save(latest);
-        }
-        if (latest != null && latest.getStatus() == KitchenAccessStatus.USED) {
-            if (latest.getSessionExpiresAt() != null
-                    && latest.getSessionExpiresAt().isAfter(now)
-                    && latest.getRevokedAt() == null) {
-                throw new KitchenAccessException(
-                        HttpStatus.CONFLICT,
-                        "Revoke the current kitchen staff session before generating another code.");
-            }
-            if (latest.getRevokedAt() == null) {
-                latest.setRevokedAt(now);
-                grantRepository.save(latest);
-            }
-        }
+
+
+        // KitchenAccessGrant latest = grantRepository
+        //         .findFirstByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
+        //         .orElse(null);
+        // if (latest != null && latest.getStatus() == KitchenAccessStatus.ACTIVE) {
+        //     if (latest.getExpiresAt().isAfter(now)) {
+        //         throw new KitchenAccessException(
+        //                 HttpStatus.CONFLICT,
+        //                 "An access code is already active. Revoke it or wait for it to expire.");
+        //     }
+        //     latest.setStatus(KitchenAccessStatus.EXPIRED);
+        //     grantRepository.save(latest);
+        // }
+        // if (latest != null && latest.getStatus() == KitchenAccessStatus.USED) {
+        //     if (latest.getSessionExpiresAt() != null
+        //             && latest.getSessionExpiresAt().isAfter(now)
+        //             && latest.getRevokedAt() == null) {
+        //         throw new KitchenAccessException(
+        //                 HttpStatus.CONFLICT,
+        //                 "Revoke the current kitchen staff session before generating another code.");
+        //     }
+        //     if (latest.getRevokedAt() == null) {
+        //         latest.setRevokedAt(now);
+        //         grantRepository.save(latest);
+        //     }
+        // }
+
+
+
+
 
         String code;
         String tokenHash;
@@ -97,44 +103,66 @@ public class KitchenAccessService {
         return new KitchenAccessCodeResponse(code, grant.getExpiresAt());
     }
 
+
     @Transactional
     public KitchenAccessStatusResponse getStatus(Long restaurantId, String ownerIdentity) {
         Restaurant restaurant = getOwnedRestaurant(restaurantId, ownerIdentity, false);
+        LocalDateTime now = LocalDateTime.now();
+        long activeStaffCount = grantRepository.countActiveSessions(
+                restaurant.getId(), KitchenAccessStatus.USED, now);
+
         KitchenAccessGrant grant = grantRepository
                 .findFirstByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
                 .orElse(null);
         if (grant == null) {
-            return new KitchenAccessStatusResponse(null, null, null, false);
+            return new KitchenAccessStatusResponse(null, null, null, false, activeStaffCount);
         }
-        LocalDateTime now = LocalDateTime.now();
         if (grant.getStatus() == KitchenAccessStatus.ACTIVE && !grant.getExpiresAt().isAfter(now)) {
             grant.setStatus(KitchenAccessStatus.EXPIRED);
             grantRepository.save(grant);
         }
-        boolean sessionActive = grant.getStatus() == KitchenAccessStatus.USED
-                && grant.getRevokedAt() == null
-                && grant.getSessionExpiresAt() != null
-                && grant.getSessionExpiresAt().isAfter(now);
+        boolean sessionActive = activeStaffCount > 0;
         return new KitchenAccessStatusResponse(
-                grant.getStatus(), grant.getExpiresAt(), grant.getUsedAt(), sessionActive);
+                grant.getStatus(), grant.getExpiresAt(), grant.getUsedAt(), sessionActive, activeStaffCount);
     }
+
+    // @Transactional
+    // public KitchenAccessStatusResponse revoke(Long restaurantId, String ownerIdentity) {
+    //     getOwnedRestaurant(restaurantId, ownerIdentity, true);
+    //     KitchenAccessGrant grant = grantRepository
+    //             .findFirstByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
+    //             .orElseThrow(() -> new ResourceNotFoundException("No kitchen access grant found"));
+    //     if (grant.getStatus() == KitchenAccessStatus.ACTIVE) {
+    //         grant.setStatus(KitchenAccessStatus.REVOKED);
+    //         grant.setRevokedAt(LocalDateTime.now());
+    //     }
+    //     if (grant.getStatus() == KitchenAccessStatus.USED && grant.getRevokedAt() == null) {
+    //         grant.setRevokedAt(LocalDateTime.now());
+    //     }
+    //     grantRepository.save(grant);
+    //     return getStatus(restaurantId, ownerIdentity);
+    // }
+    
 
     @Transactional
     public KitchenAccessStatusResponse revoke(Long restaurantId, String ownerIdentity) {
-        getOwnedRestaurant(restaurantId, ownerIdentity, true);
-        KitchenAccessGrant grant = grantRepository
-                .findFirstByRestaurant_IdOrderByCreatedAtDesc(restaurantId)
-                .orElseThrow(() -> new ResourceNotFoundException("No kitchen access grant found"));
-        if (grant.getStatus() == KitchenAccessStatus.ACTIVE) {
-            grant.setStatus(KitchenAccessStatus.REVOKED);
-            grant.setRevokedAt(LocalDateTime.now());
-        }
-        if (grant.getStatus() == KitchenAccessStatus.USED && grant.getRevokedAt() == null) {
-            grant.setRevokedAt(LocalDateTime.now());
-        }
-        grantRepository.save(grant);
-        return getStatus(restaurantId, ownerIdentity);
-    }
+     getOwnedRestaurant(restaurantId, ownerIdentity, true);
+     LocalDateTime now = LocalDateTime.now();
+     int revokedCodes = grantRepository.revokeActiveCodes(
+             restaurantId, KitchenAccessStatus.ACTIVE, KitchenAccessStatus.REVOKED, now);
+     int revokedSessions = grantRepository.revokeActiveSessions(
+             restaurantId, KitchenAccessStatus.USED, now);
+     if (revokedCodes == 0 && revokedSessions == 0) {
+         throw new ResourceNotFoundException("No active kitchen access found");
+     }
+     return getStatus(restaurantId, ownerIdentity);
+ }
+
+
+
+
+
+
 
     @Transactional(noRollbackFor = KitchenAccessException.class)
     public KitchenStaffSessionResponse redeemCode(String code, String remoteAddress) {

@@ -298,7 +298,8 @@ public class OrderApprovalService {
         String pageUrl = restaurant.isOrderApprovalEnabled()
                 ? frontendOrigin + "/order-approval"
                 : null;
-        return new OrderApprovalSettingsResponse(restaurant.isOrderApprovalEnabled(), pageUrl);
+        long activeStaffCount = sessionRepository.countActiveSessions(restaurant.getId(), LocalDateTime.now());
+        return new OrderApprovalSettingsResponse(restaurant.isOrderApprovalEnabled(), pageUrl, activeStaffCount);
     }
 
     private void revokeSessions(Long restaurantId) {

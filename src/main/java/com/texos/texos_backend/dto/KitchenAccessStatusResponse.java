@@ -13,4 +13,5 @@ public class KitchenAccessStatusResponse {
     private LocalDateTime expiresAt;
     private LocalDateTime usedAt;
     private boolean sessionActive;
+    private long activeStaffCount;
 }

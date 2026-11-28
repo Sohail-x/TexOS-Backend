@@ -1,6 +1,8 @@
 package com.texos.texos_backend.repository;
 
 import com.texos.texos_backend.entity.OrderApprovalSession;
+
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -18,4 +20,13 @@ public interface OrderApprovalSessionRepository extends JpaRepository<OrderAppro
     @Query("update OrderApprovalSession s set s.revokedAt = CURRENT_TIMESTAMP "
             + "where s.restaurant.id = :restaurantId and s.revokedAt is null")
     int revokeActiveByRestaurantId(@Param("restaurantId") Long restaurantId);
+
+
+    @Query("select count(s) from OrderApprovalSession s "
+            + "where s.restaurant.id = :restaurantId "
+            + "and s.revokedAt is null "
+            + "and s.expiresAt > :now")
+    long countActiveSessions(
+            @Param("restaurantId") Long restaurantId,
+            @Param("now") LocalDateTime now);
 }
