@@ -7,6 +7,7 @@ import com.texos.texos_backend.dto.LoyaltyTransactionOverview;
 import com.texos.texos_backend.dto.LoyaltyTransactionSummary;
 import com.texos.texos_backend.entity.*;
 import com.texos.texos_backend.repository.*;
+import com.texos.texos_backend.exception.InvalidRequestException;
 import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.observability.DashboardRequestMeasurements.Measurement.Stage;
@@ -391,6 +392,19 @@ public class LoyaltyService {
   LoyaltyAccount a=accounts.lockAccount(restaurant.getId(),customer.getId()).orElseThrow(()->new IllegalArgumentException("No loyalty points available"));
   expireAvailableLots(a);
   if(a.getAvailablePoints()<points)throw new IllegalArgumentException("Insufficient loyalty points");
+
+  int maxRedeemablePoints = eligibleSubtotal
+      .multiply(BigDecimal.valueOf(p.getConversionPoints()))
+      .divide(p.getConversionInr(), 0, RoundingMode.FLOOR)
+      .intValue();
+  if (maxRedeemablePoints < 1) {
+   throw new InvalidRequestException("Order amount is too low to redeem loyalty points");
+  }
+  if (points > maxRedeemablePoints) {
+   throw new InvalidRequestException("You can redeem a maximum of " + maxRedeemablePoints + " points for this order");
+  }
+
+
   BigDecimal discount=p.getConversionInr()
       .multiply(BigDecimal.valueOf(points))
       .divide(BigDecimal.valueOf(p.getConversionPoints()),2,RoundingMode.HALF_UP);
@@ -405,6 +419,8 @@ public class LoyaltyService {
   redemptions.save(red);
   reservePointLots(a,red,points);
   order.setRewardDiscountAmount(discount);
+
+
   saveTx(restaurant,customer,order,red,"RESERVATION",points,"Reward points reserved for checkout","reserve:"+order.getOrderNumber());
  }
  @Transactional
@@ -433,14 +449,20 @@ public class LoyaltyService {
   }
   if(order.getCustomer()!=null&&order.getPaymentStatus()==PaymentStatus.PAID) awardPoints(order);
  }
+
+
+
  private void awardPoints(RestaurantOrder o) {
   LoyaltyProgram p=programs.findByRestaurant_Id(o.getRestaurant().getId()).orElse(null);if(p==null||!p.isEnabled())return;
   String key="earn:order:"+o.getId();if(transactions.existsByIdempotencyKey(key))return;
   BigDecimal subtotal=o.getItems().stream().filter(i->!i.getItemName().endsWith("(Reward)")).map(OrderItem::getLineTotal).reduce(BigDecimal.ZERO,BigDecimal::add);
-  try {
-   subtotal=billService.getBillByOrderNumber(o.getOrderNumber()).getTotalAmount();
-  } catch(ResourceNotFoundException ignored) {}
+    if (o.getTotalAmount() != null && o.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+        subtotal = subtotal.min(o.getTotalAmount());
+    }
   if(subtotal.compareTo(p.getMinimumOrderAmount())<0)return;
+
+
+
   long points=subtotal.multiply(BigDecimal.valueOf(p.getPointsPer100())).divide(new BigDecimal("100"),0,RoundingMode.FLOOR).longValue();if(points<1)return;
   LoyaltyAccount a=accounts.lockAccount(o.getRestaurant().getId(),o.getCustomer().getId()).orElseGet(()->{LoyaltyAccount n=new LoyaltyAccount();n.setRestaurant(o.getRestaurant());n.setCustomer(o.getCustomer());return accounts.save(n);});
   long debtPaid=Math.min(points,Math.max(0,a.getPointsDebt()));

@@ -114,6 +114,16 @@ public class BillService {
 
     @Transactional(readOnly = true)
     public List<BillResponse> getBillsForOrders(List<RestaurantOrder> orders) {
+        return getBillsForOrders(orders, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BillResponse> getBillsForOrdersIfPresent(List<RestaurantOrder> orders) {
+        return getBillsForOrders(orders, true);
+    }
+
+    private List<BillResponse> getBillsForOrders(
+            List<RestaurantOrder> orders, boolean skipMissingBills) {
         if (orders.isEmpty()) {
             return List.of();
         }
@@ -159,6 +169,9 @@ public class BillService {
                     ? standaloneBills.get(representative.getId())
                     : sessionBills.get(representative.getOrderSessionKey());
             if (bill == null) {
+                if (skipMissingBills) {
+                    continue;
+                }
                 throw new ResourceNotFoundException("Bill not found");
             }
             List<RestaurantOrder> sittingOrders = representative.getOrderSessionKey() == null

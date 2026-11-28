@@ -10,6 +10,7 @@ import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
@@ -30,6 +31,7 @@ import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderService {
 
     private final RestaurantTableRepository tableRepository;
@@ -335,7 +337,7 @@ order.setPaymentStatus(PaymentStatus.PENDING);
         List<RestaurantOrder> orders = orderRepository.findAllOwnerOrdersWithDetails(
                 restaurantId,
                 List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED));
-        return mapOwnerOrdersWithBills(orders);
+        return mapOwnerOrdersWithBills(restaurantId, orders);
     }
 
     @Transactional(readOnly = true)
@@ -383,7 +385,7 @@ order.setPaymentStatus(PaymentStatus.PENDING);
                 .map(byId::get)
                 .filter(Objects::nonNull)
                 .toList();
-        return mapOwnerOrdersWithBills(ordered);
+        return mapOwnerOrdersWithBills(restaurantId, ordered);
     }
 
     @Transactional(readOnly = true)
@@ -399,12 +401,18 @@ order.setPaymentStatus(PaymentStatus.PENDING);
     }
 
     private List<OrderResponse> mapOwnerOrdersWithBills(List<RestaurantOrder> orders) {
+        Long restaurantId = orders.isEmpty() ? null : orders.get(0).getRestaurant().getId();
+        return mapOwnerOrdersWithBills(restaurantId, orders);
+    }
+
+    private List<OrderResponse> mapOwnerOrdersWithBills(
+            Long restaurantId, List<RestaurantOrder> orders) {
         if (orders.isEmpty()) {
             return List.of();
         }
 
         Map<Long, BillResponse> billResponsesByOrderId = new LinkedHashMap<>();
-        for (BillResponse billResponse : billService.getBillsForOrders(orders)) {
+        for (BillResponse billResponse : billService.getBillsForOrdersIfPresent(orders)) {
             if (billResponse.getOrderIds() != null) {
                 billResponse.getOrderIds().forEach(orderId ->
                         billResponsesByOrderId.put(orderId, billResponse));
@@ -417,7 +425,8 @@ order.setPaymentStatus(PaymentStatus.PENDING);
         for (RestaurantOrder order : orders) {
             BillResponse billResponse = billResponsesByOrderId.get(order.getId());
             if (billResponse == null) {
-                throw new ResourceNotFoundException("Bill not found");
+                log.warn("Missing bill for orderId={} in restaurantId={}",
+                        order.getId(), restaurantId);
             }
             responses.add(mapToResponse(order, billResponse));
         }
@@ -622,7 +631,7 @@ public OrderResponse updatePaymentStatus(
             long billQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
             List<BillResponse> bills;
             try {
-                bills = billService.getBillsForOrders(visibleOrders);
+                bills = billService.getBillsForOrdersIfPresent(visibleOrders);
             } finally {
                 DashboardRequestMeasurements.recordStageDuration(
                         DashboardRequestMeasurements.Measurement.Stage.RECENT_BILL_REPOSITORY,
@@ -650,7 +659,8 @@ public OrderResponse updatePaymentStatus(
                 for (RestaurantOrder order : visibleOrders) {
                     BillResponse billResponse = billsByOrderId.get(order.getId());
                     if (billResponse == null) {
-                        throw new ResourceNotFoundException("Bill not found");
+                        log.warn("Missing bill for orderId={} in restaurantId={}",
+                                order.getId(), restaurantId);
                     }
                     OrderResponse response = mapToResponse(order, billResponse);
                     itemCount += response.getItems() == null ? 0 : response.getItems().size();
@@ -703,7 +713,7 @@ public OrderResponse updatePaymentStatus(
             long billsQueryStartedAtNanos = DashboardRequestMeasurements.startStage();
             List<BillResponse> bills;
             try {
-                bills = billService.getBillsForOrders(visibleOrders);
+                bills = billService.getBillsForOrdersIfPresent(visibleOrders);
             } finally {
                 DashboardRequestMeasurements.recordStageDuration(
                         DashboardRequestMeasurements.Measurement.Stage.ACTIVE_BILLS_REPOSITORY,
@@ -731,7 +741,8 @@ public OrderResponse updatePaymentStatus(
                 for (RestaurantOrder order : visibleOrdersById.values()) {
                     BillResponse billResponse = billResponsesByOrderId.get(order.getId());
                     if (billResponse == null) {
-                        throw new ResourceNotFoundException("Bill not found");
+                        log.warn("Missing bill for orderId={} in restaurantId={}",
+                                order.getId(), restaurantId);
                     }
                     OrderResponse response = mapToResponse(order, billResponse);
                     itemCount += response.getItems() == null ? 0 : response.getItems().size();

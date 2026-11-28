@@ -2,7 +2,7 @@ package com.texos.texos_backend.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,7 +19,6 @@ import com.texos.texos_backend.entity.PaymentStatus;
 import com.texos.texos_backend.entity.Restaurant;
 import com.texos.texos_backend.entity.RestaurantOrder;
 import com.texos.texos_backend.entity.RestaurantTable;
-import com.texos.texos_backend.exception.ResourceNotFoundException;
 import com.texos.texos_backend.observability.DashboardRequestMeasurements;
 import com.texos.texos_backend.repository.BillRepository;
 import com.texos.texos_backend.repository.CustomerRepository;
@@ -102,7 +101,7 @@ class ActiveOrdersDashboardTest {
     }
 
     @Test
-    void activeOrdersStillFailWhenAnOrderHasNoBill() {
+    void activeOrdersIncludeOrdersWithoutBills() {
         RestaurantOrder order = order(5L, "missing-bill", OrderApprovalStatus.NOT_REQUIRED, OrderStatus.READY);
         RestaurantOrderRepository orderRepository = mock(RestaurantOrderRepository.class);
         BillRepository billRepository = mock(BillRepository.class);
@@ -117,7 +116,11 @@ class ActiveOrdersDashboardTest {
                 new BillService(
                         billRepository, mock(OrderCalculationService.class), orderRepository));
 
-        assertThrows(ResourceNotFoundException.class, () -> service.getActiveOrdersForOwner(42L));
+        List<OrderResponse> responses = service.getActiveOrdersForOwner(42L);
+
+        assertEquals(1, responses.size());
+        assertEquals(5L, responses.get(0).getId());
+        assertNull(responses.get(0).getBill());
         verify(orderRepository).findAllByRestaurant_IdAndOrderStatusInOrderByCreatedAtDesc(
                 42L, List.of(OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY));
         verify(billRepository).findAllWithOrderDetailsByOrder_IdIn(List.of(5L));

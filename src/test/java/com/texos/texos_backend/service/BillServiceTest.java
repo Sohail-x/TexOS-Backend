@@ -76,7 +76,7 @@ class BillServiceTest {
     }
 
     @Test
-    void bulkBillMappingKeepsMissingBillAsNotFound() {
+    void bulkBillMappingStillFailsForRequiredBills() {
         BillRepository repository = mock(BillRepository.class);
         BillService service = new BillService(
                 repository, mock(OrderCalculationService.class), mock(RestaurantOrderRepository.class));
@@ -85,6 +85,18 @@ class BillServiceTest {
                 .thenReturn(List.of());
 
         assertThrows(ResourceNotFoundException.class, () -> service.getBillsForOrders(List.of(order)));
+    }
+
+    @Test
+    void optionalBulkBillMappingSkipsOrdersWithoutBills() {
+        BillRepository repository = mock(BillRepository.class);
+        BillService service = new BillService(
+                repository, mock(OrderCalculationService.class), mock(RestaurantOrderRepository.class));
+        RestaurantOrder order = order(1L, "missing", new Restaurant(), new RestaurantTable());
+        when(repository.findAllWithOrderDetailsByOrder_IdIn(List.of(1L)))
+                .thenReturn(List.of());
+
+        assertEquals(List.of(), service.getBillsForOrdersIfPresent(List.of(order)));
     }
 
     @Test
@@ -147,7 +159,7 @@ class BillServiceTest {
     }
 
     @Test
-    void bulkMappingReturnsOneAggregateBillForEveryOrderInTheSitting() {
+    void bulkMappingReturnsOneUnpaidAggregateBillForEveryOrderInTheSitting() {
         BillRepository repository = mock(BillRepository.class);
         RestaurantOrderRepository orders = mock(RestaurantOrderRepository.class);
         BillService service = new BillService(
@@ -176,6 +188,7 @@ class BillServiceTest {
         assertEquals("INV/1", result.get(0).getBillNumber());
         assertEquals(List.of(1L, 2L), result.get(0).getOrderIds());
         assertEquals(List.of("first", "second"), result.get(0).getOrderNumbers());
+        assertEquals(PaymentStatus.PENDING, result.get(0).getPaymentStatus());
     }
 
     private static RestaurantOrder order(

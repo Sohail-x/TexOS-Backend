@@ -57,6 +57,27 @@ class OwnerAndKitchenOrdersBulkLoadTest {
     }
 
     @Test
+    void ownerHistoryIncludesOrdersWithoutBills() {
+        RestaurantOrder order = order(3L, OrderStatus.NEW);
+        RestaurantOrderRepository orders = mock(RestaurantOrderRepository.class);
+        BillRepository bills = mock(BillRepository.class);
+        when(orders.findAllOwnerOrdersWithDetails(
+                42L, List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED)))
+                .thenReturn(List.of(order));
+        when(bills.findAllWithOrderDetailsByOrder_IdIn(List.of(3L))).thenReturn(List.of());
+
+        List<OrderResponse> result = service(orders, bills).getOrdersForOwner(42L);
+
+        assertEquals(1, result.size());
+        assertEquals(3L, result.get(0).getId());
+        assertNull(result.get(0).getBill());
+        verify(orders).findAllOwnerOrdersWithDetails(
+                42L, List.of(OrderApprovalStatus.PENDING, OrderApprovalStatus.REJECTED));
+        verify(bills).findAllWithOrderDetailsByOrder_IdIn(List.of(3L));
+        verifyNoMoreInteractions(orders, bills);
+    }
+
+    @Test
     void kitchenQueryIsRestaurantScopedStatusFilteredAndDoesNotLoadBills() {
         RestaurantOrder order = order(4L, OrderStatus.PREPARING);
         RestaurantOrderRepository orders = mock(RestaurantOrderRepository.class);
